@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Waves Add Up</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root { --bg: #fdfdfb; --fg: #222; --muted: #777; --fig: #f4f3ee; --a: #e0503c; --b: #2f7fd6; --c: #222; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #e8e6e0; --muted: #9a978f; --fig: #1e1e1c; --a: #ff7a66; --b: #6fb0ff; --c: #f0eee8; } }
+  body { background: var(--bg); color: var(--fg); }
+  main { max-width: 720px; margin: 0 auto; padding: 90px 16px 140px; }
+  h1 { font-size: clamp(34px, 6vw, 50px); margin: 0 0 12px; letter-spacing: -0.01em; }
+  p { font-size: 18px; line-height: 1.7; font-family: Georgia, "Iowan Old Style", serif; }
+  .a { color: var(--a); font-weight: 600; } .b { color: var(--b); font-weight: 600; }
+  figure { margin: 32px -16px; background: var(--fig); border-radius: 14px; padding: 16px; }
+  @media (min-width: 760px) { figure { margin: 36px -60px; padding: 20px 24px; } }
+  figure canvas { width: 100%; height: 240px; display: block; }
+  .sliders { display: flex; gap: 12px 28px; flex-wrap: wrap; margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .sliders label { display: flex; align-items: center; gap: 10px; }
+  .sliders output { font-variant-numeric: tabular-nums; min-width: 40px; color: var(--fg); }
+  input[type="range"] { accent-color: var(--a); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Bartosz Ciechanowski</span></nav>
+<main>
+  <h1>How waves add up</h1>
+  <p>Sound, light, the ripples in a pond and the hum of a power line are all waves. What makes them interesting is not one wave on its own, but what happens when several of them meet. Let's build that up from a single spinning point.</p>
+
+  <p>Imagine a point going round a circle at a steady speed. If you only watch how high it is, and plot that height over time, you get the familiar shape of a sine wave. The <span class="a">radius</span> of the circle sets how tall the wave is, and the <span class="a">speed</span> sets how tightly the wave is packed.</p>
+  <figure>
+    <canvas id="f1"></canvas>
+    <div class="sliders">
+      <label>amplitude <input type="range" id="amp" min="0.1" max="1" step="0.01" value="0.8"><output></output></label>
+      <label>frequency <input type="range" id="freq" min="0.2" max="3" step="0.01" value="1"><output></output></label>
+    </div>
+    <figcaption>The point on the left drives the trace on the right. Drag the sliders while it moves.</figcaption>
+  </figure>
+
+  <p>Now take two waves and simply add their heights together at every moment. When their peaks line up, the sum is twice as tall: <em>constructive interference</em>. Slide the <span class="b">phase</span> of the second wave by half a turn and the peaks of one meet the valleys of the other. They cancel, and the black line goes flat.</p>
+  <figure>
+    <canvas id="f2"></canvas>
+    <div class="sliders">
+      <label>phase of blue <input type="range" id="phase" min="0" max="6.283" step="0.01" value="0"><output></output></label>
+      <label>blue frequency <input type="range" id="ratio" min="0.5" max="3" step="0.01" value="1"><output></output></label>
+    </div>
+    <figcaption>Try a blue frequency of about 1.1: the slow swelling in the sum is called a beat.</figcaption>
+  </figure>
+
+  <p>Here is the surprising part. With enough sine waves of the right sizes and speeds you can build almost any shape at all, even one with sharp corners. A square wave is the sum of odd harmonics: a frequency of 1, plus a third as much at frequency 3, plus a fifth at 5, and so on. Each extra circle rides on the one before it.</p>
+  <figure>
+    <canvas id="f3"></canvas>
+    <div class="sliders">
+      <label>number of circles <input type="range" id="terms" min="1" max="40" step="1" value="4"><output></output></label>
+    </div>
+    <figcaption>Notice the little overshoot at each corner never quite goes away. That is the Gibbs phenomenon.</figcaption>
+  </figure>
+
+  <p>That idea, that any signal is secretly a pile of spinning circles, is the Fourier transform. It is how your phone compresses music, how MRI scanners see inside you, and how the equaliser on a stereo knows what "bass" means.</p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+for (const input of document.querySelectorAll(".sliders input")) {
+  const out = input.nextElementSibling;
+  const upd = () => (out.textContent = (+input.value).toFixed(input.step === "1" ? 0 : 2));
+  input.addEventListener("input", upd); upd();
+}
+
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), d = Math.min(devicePixelRatio, 2);
+  if (cv.width !== Math.round(r.width * d)) { cv.width = r.width * d; cv.height = r.height * d; }
+  const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, r.width, r.height);
+  return [g, r.width, r.height];
+}
+function axis(g, x0, x1, y) { g.strokeStyle = css("--muted"); g.globalAlpha = 0.3; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); g.globalAlpha = 1; }
+function plot(g, x0, x1, fn, color, width = 2) {
+  g.strokeStyle = color; g.lineWidth = width; g.beginPath();
+  for (let x = x0; x <= x1; x += 2) { const y = fn(x); x === x0 ? g.moveTo(x, y) : g.lineTo(x, y); }
+  g.stroke();
+}
+
+let t = 0;
+function fig1() {
+  const [g, W, H] = setup($("f1"));
+  const amp = +$("amp").value, freq = +$("freq").value;
+  const R = (H / 2 - 16) * amp, cx = Math.min(130, W * 0.2), cy = H / 2, x0 = cx * 2;
+  const a = t * freq * 2;
+  g.strokeStyle = css("--muted"); g.globalAlpha = 0.4; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke(); g.globalAlpha = 1;
+  axis(g, x0, W, cy);
+  const px = cx + Math.cos(a) * R, py = cy - Math.sin(a) * R;
+  g.strokeStyle = css("--a"); g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke();
+  g.setLineDash([3, 5]); g.strokeStyle = css("--muted"); g.lineWidth = 1; g.beginPath(); g.moveTo(px, py); g.lineTo(x0, py); g.stroke(); g.setLineDash([]);
+  // The wave scrolls out to the right from the present moment.
+  plot(g, x0, W, (x) => cy - Math.sin(a - (x - x0) * 0.025 * freq) * R, css("--a"), 2.5);
+  g.fillStyle = css("--a"); g.beginPath(); g.arc(px, py, 6, 0, 7); g.fill(); g.beginPath(); g.arc(x0, py, 5, 0, 7); g.fill();
+}
+
+function fig2() {
+  const [g, W, H] = setup($("f2"));
+  const phase = +$("phase").value, ratio = +$("ratio").value;
+  const A = H / 6, rows = [H * 0.2, H * 0.42, H * 0.75];
+  rows.forEach((y) => axis(g, 0, W, y));
+  const w1 = (x) => Math.sin(x * 0.03 - t * 2), w2 = (x) => Math.sin(x * 0.03 * ratio - t * 2 * ratio + phase);
+  plot(g, 0, W, (x) => rows[0] - w1(x) * A * 0.8, css("--a"));
+  plot(g, 0, W, (x) => rows[1] - w2(x) * A * 0.8, css("--b"));
+  plot(g, 0, W, (x) => rows[2] - (w1(x) + w2(x)) * A * 0.8, css("--c"), 3);
+  g.fillStyle = css("--muted"); g.font = "13px system-ui"; g.fillText("sum", 6, rows[2] - A * 1.7);
+}
+
+function fig3() {
+  const [g, W, H] = setup($("f3"));
+  const N = +$("terms").value;
+  const cx = Math.min(150, W * 0.22), cy = H / 2, R0 = H * 0.28, x0 = cx + R0 * 1.6;
+  let x = cx, y = cy;
+  const a = t * 1.5;
+  g.lineWidth = 1;
+  for (let k = 0; k < N; k++) {
+    const n = 2 * k + 1, r = (R0 * 4) / (Math.PI * n) * 0.8;
+    g.strokeStyle = css("--muted"); g.globalAlpha = 0.35; g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke(); g.globalAlpha = 1;
+    const nx = x + Math.cos(n * a) * r, ny = y - Math.sin(n * a) * r;
+    g.strokeStyle = css("--b"); g.beginPath(); g.moveTo(x, y); g.lineTo(nx, ny); g.stroke();
+    x = nx; y = ny;
+  }
+  axis(g, x0, W, cy);
+  g.setLineDash([3, 5]); g.strokeStyle = css("--muted"); g.beginPath(); g.moveTo(x, y); g.lineTo(x0, y); g.stroke(); g.setLineDash([]);
+  const sq = (s) => { let v = 0; for (let k = 0; k < N; k++) { const n = 2 * k + 1; v += Math.sin(n * s) / n; } return (v * 4) / Math.PI; };
+  // The ideal square wave, faint, for comparison.
+  plot(g, x0, W, (px) => cy - Math.sign(Math.sin(a - (px - x0) * 0.02)) * R0 * 0.8, css("--muted"), 1);
+  plot(g, x0, W, (px) => cy - sq(a - (px - x0) * 0.02) * R0 * 0.8, css("--b"), 2.5);
+  g.fillStyle = css("--b"); g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();
+}
+
+function frame() { t += 0.012; fig1(); fig2(); fig3(); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

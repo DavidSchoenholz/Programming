@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Googly Eyes</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #ffd23f; color: #1b1b1b; overflow: hidden; height: 100vh; cursor: crosshair; touch-action: none; }
+  .eye { position: absolute; border-radius: 50%; background: #fff; box-shadow: inset 0 -6px 0 rgba(0,0,0,0.08), 0 4px 0 rgba(0,0,0,0.15); overflow: hidden; }
+  .pupil { position: absolute; left: 50%; top: 50%; border-radius: 50%; background: #111; will-change: transform; }
+  .pupil::after { content: ""; position: absolute; width: 28%; height: 28%; top: 18%; left: 22%; border-radius: 50%; background: #fff; opacity: 0.85; }
+  .lid { position: absolute; left: 0; right: 0; top: 0; height: 0; background: #e8b923; transition: height 90ms ease-in; border-bottom: 3px solid #1b1b1b; }
+  .eye.blink .lid { height: 100%; }
+  h1 { position: fixed; left: 0; right: 0; bottom: 48px; text-align: center; margin: 0; font-size: clamp(22px, 4vw, 34px); pointer-events: none; }
+  .hint { bottom: 22px; }
+  .panel { background: rgba(255,255,255,0.5); top: 16px; bottom: auto; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Tim Holman</span></nav>
+<div class="panel"><div class="row"><button id="shake">Shake</button><button id="clear">Clear</button></div></div>
+<h1>They are watching.</h1>
+<div class="hint">click to add an eye · hover one to make it blink</div>
+<script>
+const eyes = [];
+let mx = innerWidth / 2, my = innerHeight / 2, lastMove = 0;
+addEventListener("pointermove", (e) => { mx = e.clientX; my = e.clientY; lastMove = performance.now(); });
+
+function addEye(x, y, size) {
+  const el = document.createElement("div"); el.className = "eye";
+  el.style.width = el.style.height = size + "px"; el.style.left = x - size / 2 + "px"; el.style.top = y - size / 2 + "px";
+  const pupil = document.createElement("div"); pupil.className = "pupil";
+  const ps = size * (0.38 + Math.random() * 0.15);
+  pupil.style.width = pupil.style.height = ps + "px"; pupil.style.margin = -ps / 2 + "px 0 0 " + -ps / 2 + "px";
+  const lid = document.createElement("div"); lid.className = "lid";
+  el.append(pupil, lid); document.body.appendChild(el);
+  // Pupils are loose: a mass on a spring towards where the eye wants to look, plus gravity.
+  const eye = { el, pupil, x, y, size, ps, px: 0, py: 0, vx: 0, vy: 0, wobble: 0.6 + Math.random() * 0.6 };
+  el.addEventListener("pointerenter", () => blink(eye));
+  eyes.push(eye);
+  return eye;
+}
+function blink(eye) { eye.el.classList.add("blink"); setTimeout(() => eye.el.classList.remove("blink"), 160); }
+
+// A face's worth of eyes to start with, in pairs.
+function seed() {
+  const n = Math.max(3, Math.floor((innerWidth * innerHeight) / 120000));
+  for (let i = 0; i < n; i++) {
+    const s = 40 + Math.random() * 90, x = 80 + Math.random() * (innerWidth - 160), y = 80 + Math.random() * (innerHeight - 220);
+    addEye(x - s * 0.55, y, s); addEye(x + s * 0.55, y, s);
+  }
+}
+seed();
+
+addEventListener("pointerdown", (e) => {
+  if (e.target.closest(".panel, .sketch-nav")) return;
+  const s = 30 + Math.random() * 100;
+  const eye = addEye(e.clientX, e.clientY, s);
+  eye.vx = (Math.random() - 0.5) * 40;
+});
+document.getElementById("shake").addEventListener("click", () => { for (const e of eyes) { e.vx += (Math.random() - 0.5) * 80; e.vy += (Math.random() - 0.5) * 80; } });
+document.getElementById("clear").addEventListener("click", () => { for (const e of eyes) e.el.remove(); eyes.length = 0; });
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const idle = now - lastMove > 3000;
+  for (const e of eyes) {
+    const max = (e.size - e.ps) / 2 - 2;
+    let tx, ty;
+    if (idle) { tx = Math.sin(now / 900 + e.x) * max * 0.5; ty = max * 0.6; } // bored: look down-ish
+    else {
+      const dx = mx - e.x, dy = my - e.y, d = Math.hypot(dx, dy) || 1;
+      const reach = Math.min(max, d * 0.3);
+      tx = (dx / d) * reach; ty = (dy / d) * reach;
+    }
+    const k = 60 * e.wobble, c = 4;
+    e.vx += (k * (tx - e.px) - c * e.vx + 0) * dt;
+    e.vy += (k * (ty - e.py) - c * e.vy + 300) * dt; // a little gravity
+    e.px += e.vx * dt * 6; e.py += e.vy * dt * 6;
+    // Keep the pupil inside the eye, bouncing off the rim.
+    const r = Math.hypot(e.px, e.py);
+    if (r > max) {
+      const nx = e.px / r, ny = e.py / r;
+      e.px = nx * max; e.py = ny * max;
+      const vn = e.vx * nx + e.vy * ny;
+      if (vn > 0) { e.vx -= 1.6 * vn * nx; e.vy -= 1.6 * vn * ny; }
+    }
+    e.pupil.style.transform = `translate(${e.px}px, ${e.py}px)`;
+    if (Math.random() < 0.0015) blink(e);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

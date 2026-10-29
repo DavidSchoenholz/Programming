@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resize Me</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #f6efe4; color: #2b2118; min-height: 100vh; }
+  .toolbar {
+    max-width: 1100px; margin: 0 auto; padding: 64px 16px 16px;
+    display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; font-size: 14px;
+  }
+  .toolbar h1 { font-size: 20px; margin: 0; flex: 1 1 100%; }
+  .toolbar p { margin: 0; flex: 1 1 100%; color: #7a6a58; }
+  .readout { font-variant-numeric: tabular-nums; background: #2b2118; color: #f6efe4; padding: 4px 10px; border-radius: 6px; }
+  .wrap { overflow-x: auto; padding: 0 16px 40px; }
+  .stage { container-type: inline-size; margin: 0 auto; width: 100%; transition: width 200ms; }
+  .scene { position: relative; font-size: 15px; }
+  .b h2 { margin: 0 0 6px; font-size: 17px; }
+  .b h1 { margin: 0; font-size: 28px; line-height: 1.1; }
+  .b p { margin: 0; }
+  .b ul { margin: 6px 0 0; padding-left: 18px; }
+  .b a { color: inherit; }
+  .deco { display: none; }
+
+  /* ---------- Tower: narrow. Every section is a floor of one building. ---------- */
+  @container (width < 480px) {
+    .scene { display: flex; flex-direction: column; align-items: center; padding-top: 60px; background: linear-gradient(#bfe0f2, #f6efe4); border-radius: 12px; overflow: hidden; }
+    .b {
+      width: 84%; padding: 18px 70px 18px 18px; background: #e3d2b4; border: 3px solid #2b2118; border-bottom: none; position: relative;
+    }
+    .b::after { /* window column */
+      content: ""; position: absolute; right: 14px; top: 14px; bottom: 14px; width: 40px;
+      background: repeating-linear-gradient(#fff6c8 0 18px, transparent 18px 28px);
+      border-left: 3px solid #2b2118; border-right: 3px solid #2b2118;
+    }
+    .name { background: #c9533a; color: #fff6ec; border-radius: 14px 14px 0 0; }
+    .name::before { content: ""; position: absolute; left: 50%; top: -48px; width: 4px; height: 45px; background: #2b2118; }
+    .contact::before { content: ""; position: absolute; right: 22px; bottom: 0; width: 26px; height: 40px; background: #2b2118; border-radius: 13px 13px 0 0; }
+    .deco.ground { display: block; width: 100%; height: 24px; background: #6b8f4e; border-top: 3px solid #2b2118; }
+  }
+
+  /* ---------- Notebook: medium. Pinned scraps of paper. ---------- */
+  @container (480px <= width < 820px) {
+    .scene { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; padding: 32px; background: #8b6a4a; border-radius: 12px; box-shadow: inset 0 0 0 10px #6d5037; }
+    .b {
+      background: #fffdf6; padding: 26px 20px 20px; position: relative;
+      background-image: repeating-linear-gradient(transparent 0 23px, #d5e3ef 23px 24px);
+      box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+    }
+    .b::before { content: ""; position: absolute; top: -10px; left: 50%; width: 80px; height: 22px; margin-left: -40px; background: rgba(255, 230, 140, 0.75); transform: rotate(-3deg); }
+    .name { grid-column: 1 / -1; transform: rotate(-1deg); text-align: center; background-color: #fff3d6; }
+    .about { transform: rotate(1.5deg); }
+    .work { transform: rotate(-2deg); }
+    .contact { grid-column: 1 / -1; transform: rotate(0.8deg); max-width: 70%; justify-self: center; }
+  }
+
+  /* ---------- Train: wide. Sections are carriages. ---------- */
+  @container (820px <= width < 1200px) {
+    .scene { display: flex; align-items: flex-end; gap: 14px; padding: 90px 24px 0; background: linear-gradient(#ffd9a8, #f6efe4 70%); border-radius: 12px; overflow: hidden; }
+    .b {
+      flex: 1; height: 230px; padding: 20px; background: #3d6b8c; color: #fff; border-radius: 14px 14px 6px 6px;
+      position: relative; margin-bottom: 30px; animation: bob 0.6s ease-in-out infinite alternate;
+    }
+    .b:nth-child(2) { animation-delay: 0.15s; } .b:nth-child(3) { animation-delay: 0.3s; } .b:nth-child(4) { animation-delay: 0.45s; }
+    .b::after { /* wheels */
+      content: ""; position: absolute; left: 14px; right: 14px; bottom: -22px; height: 30px;
+      background: radial-gradient(circle at 15px 15px, #2b2118 12px, transparent 13px) left / 50% 100% no-repeat,
+                  radial-gradient(circle at calc(100% - 15px) 15px, #2b2118 12px, transparent 13px) right / 50% 100% no-repeat;
+    }
+    .name { order: -1; flex: 1.2; background: #c9533a; border-radius: 60px 14px 6px 6px; display: flex; flex-direction: column; justify-content: center; }
+    .name::before { content: ""; position: absolute; top: -50px; left: 36px; width: 30px; height: 50px; background: #2b2118; border-radius: 4px 4px 0 0; }
+    .work { background: #6b8f4e; } .contact { background: #b88a2e; }
+    .deco.ground { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 18px; background: repeating-linear-gradient(90deg, #6d5037 0 10px, transparent 10px 30px), #b9a58a; border-top: 4px solid #2b2118; z-index: -1; }
+    .scene { padding-bottom: 18px; isolation: isolate; }
+    .deco.smoke { display: block; position: absolute; top: 20px; left: 50px; width: 30px; height: 30px; border-radius: 50%; background: #fff; opacity: 0.7; animation: puff 2s ease-out infinite; }
+  }
+  @keyframes bob { to { transform: translateY(-3px); } }
+  @keyframes puff { from { transform: translate(0, 40px) scale(0.4); opacity: 0.8; } to { transform: translate(-60px, -20px) scale(2); opacity: 0; } }
+
+  /* ---------- Skyline: very wide. You become the sun over a little city. ---------- */
+  @container (width >= 1200px) {
+    .scene {
+      height: 620px; border-radius: 12px; overflow: hidden;
+      background: linear-gradient(#2d2a5c, #a8507a 55%, #f4a35f 85%);
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; align-items: end; gap: 0 18px; padding: 0 40px;
+    }
+    .name {
+      position: absolute; left: 50%; top: 40px; width: 280px; height: 280px; margin-left: -140px; border-radius: 50%;
+      background: radial-gradient(#ffe39a, #ffb347); color: #5a2a12; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+      box-shadow: 0 0 120px 30px rgba(255, 190, 90, 0.5);
+    }
+    .b:not(.name) {
+      background: #1d1838; color: #f6efe4; padding: 22px; position: relative;
+      background-image: radial-gradient(#ffd77a 2px, transparent 3px); background-size: 22px 22px; background-position: 0 90px;
+    }
+    .b:not(.name) > * { position: relative; background: #1d1838; }
+    .about { height: 250px; grid-column: 1; }
+    .work { height: 300px; grid-column: 2 / 4; margin-top: auto; }
+    .contact { height: 240px; grid-column: 5; }
+    .deco.moon { display: block; grid-column: 4; height: 180px; background: #1d1838; }
+  }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Lynn Fisher</span></nav>
+<div class="toolbar">
+  <h1>Resize me</h1>
+  <p>Same four blocks of content, four costumes. Resize the window or use the slider. Breakpoints: 480 tower · 820 notebook · 1200 train · skyline.</p>
+  <label>width <input id="w" type="range" min="280" max="1500" value="1500"></label>
+  <span class="readout" id="readout">—</span>
+</div>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <div class="scene">
+      <span class="deco smoke"></span>
+      <article class="b name"><h1>Your Name</h1><p>makes small things on the web</p></article>
+      <article class="b about"><h2>About</h2><p>I like maps, lines, shadows and springy buttons. This is a placeholder bio.</p></article>
+      <article class="b work"><h2>Work</h2><ul><li><a href="drive.html">Toy car world</a></li><li><a href="roads.html">City roads</a></li><li><a href="shadows.html">City shadows</a></li></ul></article>
+      <span class="deco moon"></span>
+      <article class="b contact"><h2>Contact</h2><p>hello@example.com</p></article>
+      <span class="deco ground"></span>
+    </div>
+  </div>
+</div>
+<script>
+const stage = document.getElementById("stage"), slider = document.getElementById("w"), readout = document.getElementById("readout");
+const mode = (w) => (w < 480 ? "tower" : w < 820 ? "notebook" : w < 1200 ? "train" : "skyline");
+let manual = false;
+slider.addEventListener("input", () => { manual = true; stage.style.width = slider.value + "px"; });
+addEventListener("resize", () => { if (!manual) slider.value = Math.min(1500, stage.offsetWidth); });
+new ResizeObserver(([e]) => {
+  const w = Math.round(e.contentRect.width);
+  readout.textContent = `${w}px · ${mode(w)}`;
+}).observe(stage);
+slider.value = Math.min(1500, stage.offsetWidth);
+</script>
+</body>
+</html>

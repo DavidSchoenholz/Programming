@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Small Details</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root {
+    --bg: #fafafa; --fg: #111; --muted: #8a8a8a; --card: #fff; --border: #ececec; --hover: #f2f2f2;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0b0b; --fg: #ededed; --muted: #777; --card: #141414; --border: #222; --hover: #1d1d1d; }
+  }
+  body { background: var(--bg); color: var(--fg); font-size: 14px; }
+  main { max-width: 640px; margin: 0 auto; padding: 88px 16px 120px; }
+  h1 { font-size: 15px; font-weight: 500; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 48px; }
+  .demo { padding: 24px 0 40px; border-top: 1px solid var(--border); }
+  .demo h2 { font-size: 13px; font-weight: 500; margin: 0 0 4px; }
+  .demo p { color: var(--muted); margin: 0 0 20px; }
+  .stage { display: flex; align-items: center; justify-content: center; min-height: 120px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; position: relative; overflow: hidden; }
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--fg);
+    border-radius: 8px; height: 34px; padding: 0 14px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: transform 120ms var(--ease), background 120ms;
+  }
+  .btn:hover { background: var(--hover); }
+  .btn:active { transform: scale(0.97); }
+
+  /* Copy */
+  .copy { position: relative; width: 34px; padding: 0; justify-content: center; }
+  .copy svg { position: absolute; transition: opacity 200ms, transform 300ms var(--ease), filter 200ms; }
+  .copy .check { opacity: 0; transform: scale(0.5); filter: blur(4px); }
+  .copy.done .clip { opacity: 0; transform: scale(0.5); filter: blur(4px); }
+  .copy.done .check { opacity: 1; transform: scale(1); filter: blur(0); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 6px 10px; border-radius: 6px; margin-right: 8px; }
+
+  /* Toasts */
+  .toasts { position: absolute; bottom: 16px; right: 16px; width: 260px; height: 64px; }
+  .toast {
+    position: absolute; bottom: 0; right: 0; width: 100%;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    transition: transform 400ms var(--ease), opacity 400ms;
+    transform-origin: bottom center;
+  }
+  .toast small { color: var(--muted); display: block; }
+
+  /* Sliding highlight */
+  .tabs { position: relative; display: flex; gap: 2px; }
+  .tabs a { position: relative; z-index: 1; padding: 6px 12px; color: var(--muted); text-decoration: none; transition: color 150ms; }
+  .tabs a:hover, .tabs a.active { color: var(--fg); }
+  .pill { position: absolute; top: 0; height: 100%; background: var(--hover); border-radius: 8px; opacity: 0; transition: transform 250ms var(--ease), width 250ms var(--ease), opacity 150ms; }
+
+  /* Hold to delete */
+  .hold { position: relative; overflow: hidden; color: #e5484d; border-color: color-mix(in srgb, #e5484d 30%, transparent); user-select: none; -webkit-user-select: none; }
+  .hold .fill {
+    position: absolute; inset: 0; background: #e5484d; color: #fff;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    clip-path: inset(0 100% 0 0); transition: clip-path 200ms ease-out;
+  }
+  .hold:active .fill { clip-path: inset(0 0 0 0); transition: clip-path 1.6s linear; }
+
+  /* Command menu */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: flex-start; justify-content: center; padding-top: 18vh; z-index: 2000; opacity: 0; pointer-events: none; transition: opacity 150ms; }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  .cmd { width: min(520px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); overflow: hidden; transform: scale(0.96); transition: transform 200ms var(--ease); }
+  .overlay.open .cmd { transform: scale(1); }
+  .cmd input { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--fg); padding: 16px; outline: none; font-size: 15px; }
+  .cmd ul { list-style: none; margin: 0; padding: 6px; max-height: 280px; overflow: auto; }
+  .cmd li { padding: 10px 12px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; }
+  .cmd li.sel { background: var(--hover); }
+  .cmd li small { color: var(--muted); }
+  kbd { font-family: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Rauno Freiberg &amp; Emil Kowalski</span></nav>
+<main>
+  <h1>Small details</h1>
+  <p class="lead">Five quiet interactions. None of them need to exist, which is the point.</p>
+
+  <section class="demo">
+    <h2>Copy, then tick</h2>
+    <p>The icon swaps with a blur and a scale, not a jump.</p>
+    <div class="stage">
+      <code>npm i nothing</code>
+      <button class="btn copy" aria-label="Copy">
+        <svg class="clip" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        <svg class="check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <section class="demo">
+    <h2>Stacked toasts</h2>
+    <p>New ones push old ones back. Hover the stack to fan it out.</p>
+    <div class="stage" style="min-height: 240px; justify-content: flex-start; align-items: flex-start;">
+      <button class="btn" id="toastBtn">Make a toast</button>
+      <div class="toasts" id="toasts"></div>
+    </div>
+  </section>
+
+  <section class="demo">
+    <h2>Sliding highlight</h2>
+    <p>The hover background travels between items instead of blinking on and off.</p>
+    <div class="stage">
+      <nav class="tabs" id="tabs">
+        <span class="pill"></span>
+        <a href="#" class="active">Overview</a><a href="#">Projects</a><a href="#">Writing</a><a href="#">Notes</a><a href="#">About</a>
+      </nav>
+    </div>
+  </section>
+
+  <section class="demo">
+    <h2>Hold to delete</h2>
+    <p>A destructive action that asks for a little commitment. Let go early to cancel.</p>
+    <div class="stage">
+      <button class="btn hold" id="hold">
+        Hold to delete
+        <span class="fill" aria-hidden="true">Hold to delete</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="demo">
+    <h2>Command menu</h2>
+    <p>Press <kbd>⌘</kbd> <kbd>K</kbd> (or <kbd>Ctrl</kbd> <kbd>K</kbd>), type, use arrows.</p>
+    <div class="stage"><button class="btn" id="openCmd">Open menu <kbd>⌘K</kbd></button></div>
+  </section>
+</main>
+
+<div class="overlay" id="overlay">
+  <div class="cmd" role="dialog" aria-label="Command menu">
+    <input id="q" placeholder="Search sketches…" autocomplete="off">
+    <ul id="results"></ul>
+  </div>
+</div>
+
+<script>
+// Copy.
+const copy = document.querySelector(".copy");
+copy.addEventListener("click", () => {
+  navigator.clipboard?.writeText("npm i nothing").catch(() => {});
+  copy.classList.add("done");
+  clearTimeout(copy._t);
+  copy._t = setTimeout(() => copy.classList.remove("done"), 1600);
+});
+
+// Toasts: newest in front, older ones shrink and peek out above.
+const toastsEl = document.getElementById("toasts");
+let toasts = [], expanded = false, n = 0;
+function layoutToasts() {
+  toasts.forEach((t, i) => {
+    const depth = toasts.length - 1 - i;
+    const y = expanded ? -depth * 70 : -depth * 10;
+    const s = expanded ? 1 : 1 - depth * 0.05;
+    t.style.transform = `translateY(${y}px) scale(${s})`;
+    t.style.opacity = depth > 2 && !expanded ? 0 : 1;
+    t.style.zIndex = 10 - depth;
+  });
+}
+document.getElementById("toastBtn").addEventListener("click", () => {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.innerHTML = `Toast #${++n}<small>Saved a moment ago</small>`;
+  t.style.transform = "translateY(40px) scale(1)";
+  t.style.opacity = 0;
+  toastsEl.appendChild(t);
+  toasts.push(t);
+  requestAnimationFrame(() => requestAnimationFrame(layoutToasts));
+  setTimeout(() => {
+    t.style.opacity = 0;
+    t.style.transform += " translateY(20px)";
+    setTimeout(() => { t.remove(); toasts = toasts.filter((x) => x !== t); layoutToasts(); }, 400);
+  }, 6000);
+});
+toastsEl.addEventListener("mouseenter", () => { expanded = true; layoutToasts(); });
+toastsEl.addEventListener("mouseleave", () => { expanded = false; layoutToasts(); });
+
+// Sliding highlight.
+const tabs = document.getElementById("tabs");
+const pill = tabs.querySelector(".pill");
+for (const a of tabs.querySelectorAll("a")) {
+  a.addEventListener("mouseenter", () => {
+    pill.style.width = a.offsetWidth + "px";
+    pill.style.transform = `translateX(${a.offsetLeft}px)`;
+    pill.style.opacity = 1;
+  });
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    tabs.querySelector(".active").classList.remove("active");
+    a.classList.add("active");
+  });
+}
+tabs.addEventListener("mouseleave", () => (pill.style.opacity = 0));
+
+// Hold to delete: the CSS does the fill, JS only notices completion.
+const hold = document.getElementById("hold");
+let holdTimer;
+hold.addEventListener("pointerdown", () => {
+  holdTimer = setTimeout(() => {
+    hold.firstChild.textContent = "Deleted ";
+    hold.querySelector(".fill").textContent = "Deleted";
+    setTimeout(() => { hold.firstChild.textContent = "Hold to delete"; hold.querySelector(".fill").textContent = "Hold to delete"; }, 1500);
+  }, 1600);
+});
+for (const ev of ["pointerup", "pointerleave", "pointercancel"]) hold.addEventListener(ev, () => clearTimeout(holdTimer));
+
+// Command menu.
+const items = [
+  ["Toy car world", "drive.html"], ["Spring playground", "springs.html"], ["Resize me", "resize.html"],
+  ["City roads", "roads.html"], ["Digit poster", "poster.html"], ["Terrain", "terrain.html"],
+  ["Flow field", "flowfield.html"], ["Plotter lines", "plotter.html"], ["Digital garden", "garden.html"],
+  ["Stacked notes", "stacked.html"], ["Nested previews", "popups.html"], ["Glowing web", "web.html"],
+  ["City shadows", "shadows.html"], ["Coloured light", "light.html"], ["Draw a perfect circle", "circle.html"],
+  ["How waves add up", "waves.html"], ["Googly eyes", "toys.html"],
+];
+const overlay = document.getElementById("overlay"), q = document.getElementById("q"), results = document.getElementById("results");
+let sel = 0, shown = items;
+function render() {
+  const s = q.value.trim().toLowerCase();
+  shown = items.filter(([t]) => t.toLowerCase().includes(s));
+  sel = Math.min(sel, Math.max(0, shown.length - 1));
+  results.innerHTML = shown.length
+    ? shown.map(([t, h], i) => `<li class="${i === sel ? "sel" : ""}" data-h="${h}">${t}<small>${h}</small></li>`).join("")
+    : `<li><small>Nothing matches.</small></li>`;
+}
+function open() { overlay.classList.add("open"); q.value = ""; sel = 0; render(); setTimeout(() => q.focus(), 10); }
+function close() { overlay.classList.remove("open"); }
+document.getElementById("openCmd").addEventListener("click", open);
+addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); overlay.classList.contains("open") ? close() : open(); }
+  if (!overlay.classList.contains("open")) return;
+  if (e.key === "Escape") close();
+  if (e.key === "ArrowDown") { sel = (sel + 1) % Math.max(1, shown.length); render(); e.preventDefault(); }
+  if (e.key === "ArrowUp") { sel = (sel - 1 + shown.length) % Math.max(1, shown.length); render(); e.preventDefault(); }
+  if (e.key === "Enter" && shown[sel]) location.href = shown[sel][1];
+});
+q.addEventListener("input", () => { sel = 0; render(); });
+results.addEventListener("click", (e) => { const li = e.target.closest("li[data-h]"); if (li) location.href = li.dataset.h; });
+results.addEventListener("mousemove", (e) => {
+  const li = e.target.closest("li[data-h]");
+  if (!li) return;
+  const i = [...results.children].indexOf(li);
+  if (i !== sel) { sel = i; render(); }
+});
+overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+</script>
+</body>
+</html>

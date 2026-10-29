@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Roads</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root { --bg: #fbfaf7; --fg: #151515; }
+  body { background: var(--bg); color: var(--fg); overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  .panel { background: rgba(251, 250, 247, 0.9); border: 1px solid #e6e2d8; width: 280px; }
+  .panel input[type="text"] { width: 100%; padding: 6px 8px; border: 1px solid #d8d3c6; border-radius: 6px; background: #fff; }
+  .panel h3 { margin: 0; font-size: 13px; }
+  .panel .status { color: #7a756b; font-size: 12px; min-height: 1.4em; }
+  .title {
+    position: fixed; left: 0; right: 0; bottom: 28px; text-align: center; pointer-events: none;
+    font-family: Georgia, serif; letter-spacing: 0.3em; text-transform: uppercase; font-size: 22px;
+  }
+  .title small { display: block; font-family: ui-monospace, monospace; letter-spacing: 0.1em; font-size: 11px; opacity: 0.6; margin-top: 6px; }
+  @media (max-width: 600px) { .panel { left: 16px; right: 16px; width: auto; } .title { bottom: auto; top: 56px; font-size: 16px; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Andrei Kashcha</span></nav>
+<canvas id="c"></canvas>
+<div class="title"><span id="name">Nowhere</span><small id="coords">a city grown from seed 1</small></div>
+<div class="panel">
+  <h3>Grow a fake city</h3>
+  <div class="row"><button id="grow">Grow new city</button><button id="png">Save PNG</button></div>
+  <h3 style="margin-top:8px">Or fetch a real one</h3>
+  <input type="text" id="place" placeholder="e.g. Paris, or 40.758,-73.985" value="Amsterdam">
+  <label>radius <input type="range" id="radius" min="500" max="4000" step="250" value="1500"><output id="ro">1.5 km</output></label>
+  <div class="row"><button id="fetch">Fetch roads</button></div>
+  <div class="status" id="status">Real data from OpenStreetMap via Overpass.</div>
+</div>
+<script src="../js/noise.js"></script>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr;
+function size() {
+  dpr = Math.min(devicePixelRatio, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+}
+size();
+
+const WIDTH = [2, 1, 0.6];
+let run = 0;
+
+// ---- Procedural growth ----
+function grow(seed) {
+  const myRun = ++run;
+  Noise.seed(seed);
+  const R = Noise.random;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fbfaf7"; g.fillRect(0, 0, W, H);
+  g.strokeStyle = "#151515"; g.lineCap = "round";
+  document.getElementById("name").textContent = ["Nowhere", "Elsewhere", "Somewhen", "Lineham", "Graphton", "Plotsburg"][seed % 6];
+  document.getElementById("coords").textContent = `a city grown from seed ${seed}`;
+
+  const CELL = 12;
+  const grid = new Map();
+  const key = (x, y) => ((x / CELL) | 0) + "," + ((y / CELL) | 0);
+  function addPoint(p) { const k = key(p.x, p.y); (grid.get(k) || grid.set(k, []).get(k)).push(p); }
+  function nearest(x, y, r, self) {
+    let best = null, bd = r * r;
+    const cx = (x / CELL) | 0, cy = (y / CELL) | 0;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const p of grid.get(cx + i + "," + (cy + j)) || []) {
+        if (p.id === self.id && p.idx > self.idx - 6) continue;
+        if (p.id === self.parent && self.idx < 3) continue;
+        if (self.level === 0 && p.level !== 0) continue; // highways cut straight through streets
+        const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+        if (d < bd) { bd = d; best = p; }
+      }
+    }
+    return best;
+  }
+
+  let nextId = 0;
+  const agents = [];
+  const cx = W / 2, cy = H / 2;
+  const spawn = (x, y, a, level, parent = -1) => agents.push({ x, y, a, level, parent, id: nextId++, idx: 0, life: [500, 180, 60][level] });
+  const arms = 3 + Math.floor(R() * 3);
+  for (let i = 0; i < arms; i++) spawn(cx, cy, (i / arms) * Math.PI * 2 + R() * 0.5, 0);
+  for (let i = 0; i < 6; i++) spawn(R() * W, R() * H, R() * 7, 0);
+  for (let i = 0; i < 40; i++) spawn(cx + (R() - 0.5) * W * 0.6, cy + (R() - 0.5) * H * 0.6, R() * 7, 1);
+
+  const STEP = [6, 5, 4];
+  function stepAgent(ag) {
+    const turn = ag.level === 0 ? Noise.noise3(ag.x * 0.004, ag.y * 0.004, ag.id) * 0.08 : (R() - 0.5) * 0.06;
+    ag.a += turn;
+    const nx = ag.x + Math.cos(ag.a) * STEP[ag.level], ny = ag.y + Math.sin(ag.a) * STEP[ag.level];
+    let done = false, ex = nx, ey = ny;
+    const hit = nearest(nx, ny, ag.level === 0 ? 5 : 9, ag);
+    if (hit) { ex = hit.x; ey = hit.y; done = true; }
+    if (nx < -20 || ny < -20 || nx > W + 20 || ny > H + 20) done = true;
+    g.lineWidth = WIDTH[ag.level];
+    g.beginPath(); g.moveTo(ag.x, ag.y); g.lineTo(ex, ey); g.stroke();
+    ag.x = ex; ag.y = ey; ag.idx++;
+    addPoint({ x: ag.x, y: ag.y, id: ag.id, idx: ag.idx, level: ag.level });
+    if (--ag.life <= 0) done = true;
+    // Branch off at right angles.
+    const chance = [0.14, 0.22, 0.1][ag.level];
+    if (!done && R() < chance) {
+      const side = R() < 0.5 ? 1 : -1;
+      spawn(ag.x, ag.y, ag.a + side * (Math.PI / 2) + (R() - 0.5) * 0.15, Math.min(2, ag.level + 1), ag.id);
+    }
+    if (!done && ag.level === 1 && R() < 0.05) spawn(ag.x, ag.y, ag.a - Math.PI / 2, 1, ag.id);
+    return done;
+  }
+
+  function frame() {
+    if (myRun !== run) return;
+    // Everyone grows a little each frame, so the city spreads evenly.
+    for (let k = 0; k < 2; k++) {
+      for (let i = agents.length - 1; i >= 0; i--) if (stepAgent(agents[i])) agents.splice(i, 1);
+    }
+    if (agents.length) requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// ---- Real roads from OpenStreetMap ----
+const status = (s) => (document.getElementById("status").textContent = s);
+const radius = document.getElementById("radius");
+radius.addEventListener("input", () => (document.getElementById("ro").textContent = (radius.value / 1000).toFixed(1) + " km"));
+
+async function fetchCity() {
+  const myRun = ++run;
+  const q = document.getElementById("place").value.trim();
+  let lat, lon, label = q;
+  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  try {
+    if (m) { lat = +m[1]; lon = +m[2]; }
+    else {
+      status("Looking up place…");
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+      const j = await r.json();
+      if (!j.length) return status("Couldn't find that place.");
+      lat = +j[0].lat; lon = +j[0].lon; label = j[0].display_name.split(",")[0];
+    }
+    status("Downloading roads (can take a while)…");
+    const query = `[out:json][timeout:60];way["highway"](around:${radius.value},${lat},${lon});out geom;`;
+    const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(query), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+    if (!r.ok) throw new Error("Overpass said " + r.status);
+    const data = await r.json();
+    if (myRun !== run) return;
+    drawReal(data.elements, lat, lon, +radius.value);
+    document.getElementById("name").textContent = label;
+    document.getElementById("coords").textContent = `${lat.toFixed(3)}° ${lat >= 0 ? "N" : "S"}  ${Math.abs(lon).toFixed(3)}° ${lon >= 0 ? "E" : "W"}`;
+    status(`${data.elements.length.toLocaleString()} roads.`);
+  } catch (e) {
+    status("Failed: " + e.message + ". Try a smaller radius.");
+  }
+}
+
+function drawReal(ways, lat, lon, r) {
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fbfaf7"; g.fillRect(0, 0, W, H);
+  const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  const scale = (Math.min(W, H) * 0.46) / r;
+  const big = /motorway|trunk|primary/, mid = /secondary|tertiary|residential|unclassified/;
+  g.strokeStyle = "#151515"; g.lineCap = g.lineJoin = "round";
+  for (const w of ways) {
+    if (!w.geometry) continue;
+    const t = w.tags?.highway || "";
+    g.lineWidth = big.test(t) ? 1.6 : mid.test(t) ? 0.8 : 0.35;
+    g.beginPath();
+    w.geometry.forEach((p, i) => {
+      const x = W / 2 + (p.lon - lon) * mPerDegLon * scale, y = H / 2 - (p.lat - lat) * mPerDegLat * scale;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+  }
+}
+
+let seed = 1;
+document.getElementById("grow").addEventListener("click", () => grow(++seed));
+document.getElementById("fetch").addEventListener("click", fetchCity);
+document.getElementById("png").addEventListener("click", () => {
+  const a = document.createElement("a"); a.download = "roads.png"; a.href = cv.toDataURL("image/png"); a.click();
+});
+addEventListener("resize", () => { size(); grow(seed); });
+grow(seed);
+</script>
+</body>
+</html>

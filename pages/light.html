@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coloured Light</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #000; color: #fff; overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .sketch-nav { color: #111; }
+  .hint { color: #111; opacity: 0.7; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Zach Lieberman</span></nav>
+<canvas id="c"></canvas>
+<div class="hint">move to drag the red light · click to drop a new shape · space to freeze</div>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+addEventListener("resize", size); size();
+
+const LIGHTS = [
+  { color: [255, 50, 90], x: 0, y: 0 },
+  { color: [40, 255, 130], x: 0, y: 0 },
+  { color: [60, 100, 255], x: 0, y: 0 },
+];
+const shapes = [];
+function addShape(x, y) {
+  const sides = 3 + Math.floor(Math.random() * 3);
+  shapes.push({ x, y, r: 26 + Math.random() * 40, sides, a: Math.random() * 6, spin: (Math.random() - 0.5) * 0.01, vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.4 });
+}
+for (let i = 0; i < 9; i++) addShape(Math.random() * W, Math.random() * H);
+
+function polygon(s) {
+  return Array.from({ length: s.sides }, (_, i) => {
+    const a = s.a + (i / s.sides) * Math.PI * 2;
+    return [s.x + Math.cos(a) * s.r, s.y + Math.sin(a) * s.r];
+  });
+}
+
+// Ray vs segment: returns distance along the ray, or Infinity.
+function cast(ox, oy, dx, dy, segs) {
+  let best = Infinity;
+  for (const [ax, ay, bx, by] of segs) {
+    const ex = bx - ax, ey = by - ay;
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = ((ax - ox) * ey - (ay - oy) * ex) / den;
+    const u = ((ax - ox) * dy - (ay - oy) * dx) / den;
+    if (t > 0 && u >= 0 && u <= 1 && t < best) best = t;
+  }
+  return best;
+}
+
+function visibility(lx, ly, polys) {
+  const segs = [[-1, -1, W + 1, -1], [W + 1, -1, W + 1, H + 1], [W + 1, H + 1, -1, H + 1], [-1, H + 1, -1, -1]];
+  const pts = [[-1, -1], [W + 1, -1], [W + 1, H + 1], [-1, H + 1]];
+  for (const p of polys) for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; segs.push([p[i][0], p[i][1], q[0], q[1]]); pts.push(p[i]); }
+  const hits = [];
+  for (const [px, py] of pts) {
+    const base = Math.atan2(py - ly, px - lx);
+    for (const a of [base - 0.0001, base, base + 0.0001]) {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      const t = cast(lx, ly, dx, dy, segs);
+      if (t < Infinity) hits.push([a, lx + dx * t, ly + dy * t]);
+    }
+  }
+  hits.sort((p, q) => p[0] - q[0]);
+  return hits;
+}
+
+let mouse = null, frozen = false, t = 0;
+addEventListener("pointermove", (e) => (mouse = [e.clientX, e.clientY]));
+addEventListener("pointerdown", (e) => addShape(e.clientX, e.clientY));
+addEventListener("keydown", (e) => { if (e.code === "Space") { frozen = !frozen; e.preventDefault(); } });
+
+function frame() {
+  if (!frozen) {
+    t += 0.004;
+    for (const s of shapes) {
+      s.a += s.spin; s.x += s.vx; s.y += s.vy;
+      if (s.x < -80) s.x = W + 80; if (s.x > W + 80) s.x = -80;
+      if (s.y < -80) s.y = H + 80; if (s.y > H + 80) s.y = -80;
+    }
+  }
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.12;
+  const auto = [cx + Math.cos(t * 3) * R, cy + Math.sin(t * 2) * R];
+  [LIGHTS[0].x, LIGHTS[0].y] = mouse || auto;
+  LIGHTS[1].x = cx + Math.cos(t * 2 + 2.1) * R * 1.2; LIGHTS[1].y = cy + Math.sin(t * 2.6 + 2.1) * R;
+  LIGHTS[2].x = cx + Math.cos(t * 1.7 + 4.2) * R; LIGHTS[2].y = cy + Math.sin(t * 2.2 + 4.2) * R * 1.2;
+
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = "lighter";
+  const polys = shapes.map(polygon);
+  for (const L of LIGHTS) {
+    const hits = visibility(L.x, L.y, polys);
+    const [r, gg, b] = L.color;
+    const grd = g.createRadialGradient(L.x, L.y, 0, L.x, L.y, Math.max(W, H));
+    grd.addColorStop(0, `rgba(${r},${gg},${b},1)`);
+    grd.addColorStop(0.6, `rgba(${r},${gg},${b},0.85)`);
+    grd.addColorStop(1, `rgba(${r},${gg},${b},0.5)`);
+    g.fillStyle = grd;
+    g.beginPath();
+    hits.forEach(([, x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.closePath(); g.fill();
+  }
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = "#111";
+  for (const p of polys) { g.beginPath(); p.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill(); }
+  for (const L of LIGHTS) { g.fillStyle = "#fff"; g.beginPath(); g.arc(L.x, L.y, 4, 0, 7); g.fill(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

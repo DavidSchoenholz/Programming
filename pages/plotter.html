@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plotter Lines</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #e9e9e6; color: #1a1a1a; min-height: 100vh; }
+  .wrap { display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 64px 16px 140px; }
+  svg { background: #fff; width: min(520px, 100%); height: auto; box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 20px 50px rgba(0,0,0,0.12); }
+  .meta { position: fixed; top: 16px; right: 16px; font: 12px ui-monospace, monospace; opacity: 0.6; }
+  .panel { background: rgba(255,255,255,0.85); }
+  @media (max-width: 600px) { .panel { left: 16px; right: 16px; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Matt DesLauriers</span></nav>
+<div class="meta" id="meta"></div>
+<div class="wrap"><svg id="svg" viewBox="0 0 210 297" xmlns="http://www.w3.org/2000/svg"></svg></div>
+<div class="panel">
+  <div class="row"><button data-k="rings" class="on">Rings</button><button data-k="waves">Waves</button><button data-k="sphere">Sphere</button><button data-k="squares">Squares</button></div>
+  <div class="row"><button id="next">New seed</button><button id="save">Save SVG</button></div>
+</div>
+<script src="../js/noise.js"></script>
+<script>
+const svg = document.getElementById("svg");
+const PW = 210, PH = 297, M = 20; // A4 in mm, 20mm margin
+let kind = "rings", seed = 42;
+
+const fmt = (n) => n.toFixed(2);
+function pathFrom(pts) { return pts.length < 2 ? "" : "M" + pts.map((p) => fmt(p[0]) + "," + fmt(p[1])).join("L"); }
+
+// Each generator returns a list of polylines in mm.
+const GEN = {
+  rings() {
+    const lines = [], cx = PW / 2, cy = PH / 2;
+    for (let r = 2; r < 85; r += 1.6) {
+      const pts = [];
+      for (let i = 0; i <= 240; i++) {
+        const a = (i / 240) * Math.PI * 2;
+        const n = Noise.noise3(Math.cos(a) * 1.2, Math.sin(a) * 1.2, r * 0.025);
+        const rr = r + n * r * 0.18;
+        pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+      }
+      lines.push(pts);
+    }
+    return lines;
+  },
+  waves() {
+    const lines = [];
+    for (let y = M + 30; y < PH - M; y += 3) {
+      let pts = [];
+      for (let x = M; x <= PW - M; x += 1) {
+        const t = (x - M) / (PW - 2 * M);
+        const env = Math.pow(Math.sin(t * Math.PI), 3);
+        const d = Math.abs(Noise.fbm(x * 0.04, y * 0.03, seed * 0.1, 3)) * 40 * env;
+        // Lift the pen in quiet spots to leave gaps.
+        if (Noise.noise3(x * 0.05, y * 0.05, 9) > 0.32) { if (pts.length > 1) lines.push(pts); pts = []; continue; }
+        pts.push([x, y - d]);
+      }
+      if (pts.length > 1) lines.push(pts);
+    }
+    return lines;
+  },
+  sphere() {
+    const lines = [], cx = PW / 2, cy = PH / 2, R = 70;
+    const light = [-0.5, -0.6, 0.62];
+    for (let y = -R; y <= R; y += 1.1) {
+      let pts = [];
+      for (let x = -R; x <= R; x += 0.8) {
+        const d2 = x * x + y * y;
+        const inside = d2 < R * R;
+        let on = false;
+        if (inside) {
+          const z = Math.sqrt(R * R - d2);
+          const lambert = (x * light[0] + y * light[1] + z * light[2]) / R;
+          // Darker regions keep more of each line.
+          on = Noise.noise3(x * 0.15, y * 0.9, 0) * 0.5 + 0.5 > lambert * 0.9 + 0.1;
+        }
+        if (on) pts.push([cx + x, cy + y]);
+        else { if (pts.length > 1) lines.push(pts); pts = []; }
+      }
+      if (pts.length > 1) lines.push(pts);
+    }
+    return lines;
+  },
+  squares() {
+    const lines = [], cols = 5, rows = 7;
+    const size = (PW - 2 * M) / cols;
+    const oy = (PH - rows * size) / 2;
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const cx = M + (i + 0.5) * size, cy = oy + (j + 0.5) * size;
+      const chaos = (j / rows) * 0.6;
+      for (let s = size * 0.45; s > 1; s -= 2.2) {
+        const a = (Noise.random() - 0.5) * chaos;
+        const ox = (Noise.random() - 0.5) * chaos * 6, oyy = (Noise.random() - 0.5) * chaos * 6;
+        const pts = [];
+        for (let k = 0; k <= 4; k++) {
+          const ang = a + Math.PI / 4 + (k * Math.PI) / 2;
+          pts.push([cx + ox + Math.cos(ang) * s * Math.SQRT2, cy + oyy + Math.sin(ang) * s * Math.SQRT2]);
+        }
+        lines.push(pts);
+      }
+    }
+    return lines;
+  },
+};
+
+function draw() {
+  Noise.seed(seed);
+  const lines = GEN[kind]();
+  const total = lines.reduce((sum, l) => sum + l.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - l[i][0], p[1] - l[i][1]), 0), 0);
+  svg.innerHTML = `<g fill="none" stroke="#111" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round">${lines.map((l) => `<path d="${pathFrom(l)}"/>`).join("")}</g>` +
+    `<text x="${PW - M}" y="${PH - 8}" font-size="3" font-family="monospace" text-anchor="end" fill="#999">${kind} / ${seed}</text>`;
+  document.getElementById("meta").textContent = `${lines.length} paths · ${(total / 1000).toFixed(1)} m of ink`;
+}
+
+for (const b of document.querySelectorAll("[data-k]")) b.addEventListener("click", () => {
+  kind = b.dataset.k; document.querySelectorAll("[data-k]").forEach((x) => x.classList.toggle("on", x === b)); draw();
+});
+document.getElementById("next").addEventListener("click", () => { seed = Math.floor(Math.random() * 9999); draw(); });
+document.getElementById("save").addEventListener("click", () => {
+  const out = svg.cloneNode(true); out.setAttribute("width", "210mm"); out.setAttribute("height", "297mm");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([out.outerHTML], { type: "image/svg+xml" })); a.download = `plot-${kind}-${seed}.svg`; a.click();
+});
+draw();
+</script>
+</body>
+</html>

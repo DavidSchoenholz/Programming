@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stacked Notes</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root { --bg: #fff; --fg: #1f2328; --muted: #6e7781; --border: #e4e7eb; --link: #2f6fdb; --rail: #f6f7f9; --pane: 620px; --spine: 40px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15171a; --fg: #e6e8eb; --muted: #8b939c; --border: #2a2e33; --link: #7aa7ff; --rail: #1b1e22; }
+  }
+  html, body { height: 100%; }
+  body { background: var(--rail); color: var(--fg); overflow: hidden; }
+  .stack { display: flex; height: 100vh; overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
+  .pane {
+    flex: 0 0 var(--pane); max-width: calc(100vw - var(--spine)); height: 100%;
+    position: sticky; background: var(--bg); border-left: 1px solid var(--border);
+    box-shadow: -6px 0 18px rgba(0, 0, 0, 0.04); overflow: hidden;
+  }
+  .pane .scroll { height: 100%; overflow-y: auto; padding: 72px 48px 80px; transition: opacity 200ms; }
+  .pane h1 { font-size: 26px; margin: 0 0 6px; line-height: 1.2; }
+  .pane .meta { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .pane .body { font-size: 16.5px; line-height: 1.7; }
+  .pane a { color: var(--link); text-decoration: none; border-radius: 3px; padding: 0 2px; margin: 0 -2px; transition: background 150ms; }
+  .pane a:hover { background: color-mix(in srgb, var(--link) 12%, transparent); }
+  .pane a.open { background: color-mix(in srgb, var(--link) 16%, transparent); }
+  .pane .back h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 40px 0 10px; }
+  .pane .back a { display: block; padding: 8px 10px; margin: 0 -10px; color: var(--fg); }
+  .pane .back a small { display: block; color: var(--muted); }
+  .spine {
+    position: absolute; top: 0; left: 0; bottom: 0; width: var(--spine); padding-top: 72px;
+    writing-mode: vertical-rl; font-size: 14px; font-weight: 500; color: var(--muted);
+    opacity: 0; pointer-events: none; transition: opacity 200ms; cursor: pointer; white-space: nowrap;
+  }
+  .pane.obscured .spine { opacity: 1; pointer-events: auto; }
+  .pane.obscured .scroll { opacity: 0; }
+  .end { flex: 0 0 40vw; }
+  @media (max-width: 700px) { .pane .scroll { padding: 64px 22px 80px; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Andy Matuschak</span></nav>
+<div class="stack" id="stack"></div>
+<script src="../js/notes.js"></script>
+<script>
+const stackEl = document.getElementById("stack");
+let open = [];
+
+function paneFor(id, depth) {
+  const n = NOTE_BY_ID[id];
+  const back = [...new Set(noteLinks().filter(([, to]) => to === id).map(([f]) => f))];
+  const el = document.createElement("section");
+  el.className = "pane";
+  el.style.left = depth * 40 + "px";
+  el.dataset.id = id;
+  el.innerHTML = `<div class="spine">${n.title}</div><div class="scroll">
+    <h1>${n.title}</h1><div class="meta">${n.stage} · ${n.updated}</div>
+    <div class="body">${renderNoteBody(n.body)}</div>
+    <div class="back"><h4>Links to this note</h4>${back.map((b) => `<a href="#" data-note="${b}">${NOTE_BY_ID[b].title}<small>${NOTE_BY_ID[b].body.slice(0, 80).replace(/\[\[|\]\]/g, "")}…</small></a>`).join("") || "<p class='meta'>None yet.</p>"}</div>
+  </div>`;
+  el.querySelector(".spine").addEventListener("click", () => scrollToPane(depth));
+  el.addEventListener("click", (e) => {
+    const a = e.target.closest("a[data-note]");
+    if (!a) return;
+    e.preventDefault();
+    openNote(a.dataset.note, depth);
+  });
+  return el;
+}
+
+function openNote(id, fromDepth) {
+  // Already open just to the right? Just scroll there.
+  if (open[fromDepth + 1] === id) return scrollToPane(fromDepth + 1);
+  open = open.slice(0, fromDepth + 1).concat(id);
+  render();
+  requestAnimationFrame(() => scrollToPane(open.length - 1));
+}
+
+function render() {
+  const panes = [...stackEl.querySelectorAll(".pane")];
+  // Keep panes that are unchanged, drop the rest.
+  let keep = 0;
+  while (keep < panes.length && panes[keep].dataset.id === open[keep]) keep++;
+  panes.slice(keep).forEach((p) => p.remove());
+  stackEl.querySelector(".end")?.remove();
+  for (let i = keep; i < open.length; i++) stackEl.appendChild(paneFor(open[i], i));
+  const end = document.createElement("div"); end.className = "end"; stackEl.appendChild(end);
+  // Highlight which link in each pane is the one that's open to its right.
+  stackEl.querySelectorAll(".pane").forEach((p, i) => p.querySelectorAll("a[data-note]").forEach((a) => a.classList.toggle("open", a.dataset.note === open[i + 1])));
+  history.replaceState(null, "", "?stack=" + open.join(","));
+  updateObscured();
+}
+
+function scrollToPane(i) {
+  // Sticky panes report their stuck position, so work from widths instead.
+  const panes = [...stackEl.querySelectorAll(".pane")];
+  if (!panes[i]) return;
+  const natural = panes.slice(0, i).reduce((s, p) => s + p.offsetWidth, 0);
+  stackEl.scrollTo({ left: natural - i * 40, behavior: "smooth" });
+}
+
+function updateObscured() {
+  const panes = [...stackEl.querySelectorAll(".pane")];
+  panes.forEach((p, i) => {
+    const next = panes[i + 1];
+    const covered = next && next.getBoundingClientRect().left < p.getBoundingClientRect().left + 80;
+    p.classList.toggle("obscured", !!covered);
+  });
+}
+stackEl.addEventListener("scroll", updateObscured, { passive: true });
+addEventListener("resize", updateObscured);
+
+const fromUrl = (new URLSearchParams(location.search).get("stack") || "").split(",").filter((id) => NOTE_BY_ID[id]);
+open = fromUrl.length ? fromUrl : ["linking"];
+render();
+</script>
+</body>
+</html>

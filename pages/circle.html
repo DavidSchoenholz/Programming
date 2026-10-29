@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfect Circle</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #111; color: #fff; overflow: hidden; height: 100vh; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+  .ui { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; text-align: center; }
+  .score { font-size: clamp(48px, 12vw, 120px); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1; }
+  .msg { font-size: 18px; opacity: 0.75; margin-top: 10px; min-height: 1.5em; padding: 0 16px; }
+  .top { position: fixed; top: 64px; left: 0; right: 0; text-align: center; }
+  .top h1 { margin: 0; font-size: clamp(24px, 5vw, 40px); }
+  .top p { margin: 4px 0 0; opacity: 0.6; }
+  .best { position: fixed; bottom: 20px; left: 0; right: 0; text-align: center; opacity: 0.5; font-size: 14px; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Neal Agarwal</span></nav>
+<canvas id="c"></canvas>
+<div class="top"><h1>Draw a perfect circle</h1><p>around the dot, in one go</p></div>
+<div class="ui"><div class="score" id="score"></div><div class="msg" id="msg"></div></div>
+<div class="best" id="best"></div>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const scoreEl = document.getElementById("score"), msgEl = document.getElementById("msg"), bestEl = document.getElementById("best");
+let W, H, dpr, cx, cy;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; cx = W / 2; cy = H / 2; draw(); }
+
+let best = 0;
+try { best = +localStorage.getItem("circle-best") || 0; } catch {}
+const showBest = () => (bestEl.textContent = best ? `best: ${best.toFixed(1)}%` : "");
+showBest();
+
+let pts = [], drawing = false, angle = 0, startTime = 0, done = false;
+
+function stats() {
+  const rs = pts.map(([x, y]) => Math.hypot(x - cx, y - cy));
+  const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
+  const dev = Math.sqrt(rs.reduce((a, r) => a + (r - mean) ** 2, 0) / rs.length);
+  return { rs, mean, score: Math.max(0, 100 * (1 - (dev / mean) * 4)) };
+}
+
+function draw() {
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#fff"; g.beginPath(); g.arc(cx, cy, 5, 0, 7); g.fill();
+  if (pts.length < 2) return;
+  const { rs, mean } = stats();
+  g.lineWidth = 6; g.lineCap = "round";
+  for (let i = 1; i < pts.length; i++) {
+    const err = Math.min(1, (Math.abs(rs[i] - mean) / mean) * 6);
+    g.strokeStyle = `hsl(${120 - err * 120}, 85%, 55%)`;
+    g.beginPath(); g.moveTo(...pts[i - 1]); g.lineTo(...pts[i]); g.stroke();
+  }
+  if (done) { // ghost of the ideal circle
+    g.setLineDash([4, 8]); g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.35)";
+    g.beginPath(); g.arc(cx, cy, mean, 0, 7); g.stroke(); g.setLineDash([]);
+  }
+}
+
+function finish(reason) {
+  drawing = false; done = true;
+  if (reason) { scoreEl.textContent = "XX.X%"; msgEl.textContent = reason; draw(); return; }
+  const { score } = stats();
+  scoreEl.textContent = score.toFixed(1) + "%";
+  msgEl.textContent = score > 97 ? "Are you a compass?" : score > 92 ? "Wow. Very round." : score > 85 ? "Pretty good!" : score > 70 ? "Not bad. Try again?" : "That's more of a potato.";
+  if (score > best) { best = score; try { localStorage.setItem("circle-best", best); } catch {} msgEl.textContent += " New best!"; showBest(); }
+  draw();
+}
+
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  pts = [[e.clientX, e.clientY]]; drawing = true; done = false; angle = 0; startTime = performance.now();
+  msgEl.textContent = ""; scoreEl.textContent = "";
+  draw();
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const p = [e.clientX, e.clientY], q = pts[pts.length - 1];
+  if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 2) return;
+  let da = Math.atan2(p[1] - cy, p[0] - cx) - Math.atan2(q[1] - cy, q[0] - cx);
+  if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
+  angle += da;
+  pts.push(p);
+  if (Math.hypot(p[0] - cx, p[1] - cy) < 30) return finish("Too close to the dot!");
+  if (performance.now() - startTime > 10000) return finish("Too slow!");
+  if (pts.length > 8 && Math.sign(da) !== Math.sign(angle) && Math.abs(da) > 0.15) return finish("Wrong way!");
+  if (Math.abs(angle) >= Math.PI * 2) return finish();
+  if (pts.length > 10) { scoreEl.textContent = stats().score.toFixed(1) + "%"; }
+  draw();
+});
+cv.addEventListener("pointerup", () => { if (drawing) finish(Math.abs(angle) < Math.PI * 1.8 ? "Draw a full circle." : null); });
+addEventListener("resize", size);
+size();
+</script>
+</body>
+</html>

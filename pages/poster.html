@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digit Poster</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #d9d4c7; color: #1e1b16; min-height: 100vh; }
+  .wrap { display: flex; justify-content: center; padding: 64px 16px 40px; }
+  .poster {
+    background: #f6f1e4; width: min(720px, 100%); aspect-ratio: 18 / 24; padding: 6% 7%;
+    box-shadow: 0 30px 60px rgba(40, 30, 10, 0.25); display: flex; flex-direction: column;
+    font-family: "Iowan Old Style", Georgia, serif;
+  }
+  .poster h1 { font-weight: 400; font-size: clamp(22px, 4.5vw, 38px); margin: 0; letter-spacing: 0.02em; }
+  .poster .sub { font-size: clamp(11px, 1.6vw, 14px); font-style: italic; color: #6b6253; margin-top: 4px; }
+  .poster svg { flex: 1; width: 100%; min-height: 0; margin: 4% 0; }
+  .legend { display: flex; justify-content: space-between; font-size: clamp(9px, 1.4vw, 12px); color: #6b6253; border-top: 1px solid #1e1b16; padding-top: 8px; font-variant-numeric: oldstyle-nums; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatches span { display: inline-flex; align-items: center; gap: 4px; }
+  .swatches i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .controls { display: flex; justify-content: center; gap: 8px; padding-bottom: 40px; flex-wrap: wrap; }
+  .controls button { border: 1px solid #1e1b16; background: transparent; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-family: Georgia, serif; }
+  .controls button.on { background: #1e1b16; color: #f6f1e4; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Nicholas Rougeux</span></nav>
+<div class="wrap">
+  <div class="poster">
+    <h1 id="title">π</h1>
+    <div class="sub" id="sub"></div>
+    <svg id="svg" viewBox="-520 -520 1040 1040" role="img" aria-label="Chord diagram of digits"></svg>
+    <div class="legend">
+      <div class="swatches" id="swatches"></div>
+      <div id="count"></div>
+    </div>
+  </div>
+</div>
+<div class="controls" id="controls">
+  <button data-c="pi" class="on">π</button><button data-c="e">e</button><button data-c="sqrt2">√2</button><button data-c="phi">φ</button>
+  <button id="save">Save SVG</button>
+</div>
+<script>
+const N = 1000;
+const ONE = 10n ** BigInt(N + 10);
+function atanInv(x) {
+  x = BigInt(x); const x2 = x * x;
+  let sum = 0n, term = ONE / x, k = 1n, sign = 1n;
+  while (term !== 0n) { sum += sign * (term / k); term /= x2; k += 2n; sign = -sign; }
+  return sum;
+}
+function isqrt(n) { let x = 1n << BigInt(Math.ceil(n.toString(2).length / 2) + 1), y = (x + n / x) / 2n; while (y < x) { x = y; y = (x + n / x) / 2n; } return x; }
+const CONSTANTS = {
+  pi: { name: "π", sub: "The first thousand digits of pi, each linked to the one that follows it", value: () => 4n * (4n * atanInv(5) - atanInv(239)) },
+  e: { name: "e", sub: "The first thousand digits of Euler's number, each linked to the next", value: () => { let s = 0n, t = ONE; for (let k = 1n; t; k++) { s += t; t /= k; } return s; } },
+  sqrt2: { name: "√2", sub: "The first thousand digits of the square root of two", value: () => isqrt(2n * ONE * ONE) },
+  phi: { name: "φ", sub: "The first thousand digits of the golden ratio", value: () => (ONE + isqrt(5n * ONE * ONE)) / 2n },
+};
+const COLORS = ["#c0392b", "#d35400", "#e1a21a", "#7f9a3b", "#2e8b6e", "#2c7fb8", "#3949ab", "#7b4ea3", "#b0477d", "#5d4e3c"];
+
+const svg = document.getElementById("svg");
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+
+function draw(key) {
+  const c = CONSTANTS[key];
+  const digits = c.value().toString().slice(0, N).split("").map(Number);
+  document.getElementById("title").textContent = c.name;
+  document.getElementById("sub").textContent = c.sub;
+  svg.innerHTML = "";
+
+  const R = 440, GAP = 0.03, SPAN = (Math.PI * 2) / 10;
+  const counts = Array(10).fill(0), seen = Array(10).fill(0);
+  digits.forEach((d) => counts[d]++);
+  // Each occurrence of a digit gets its own slot along that digit's arc.
+  const slot = digits.map((d) => {
+    const t = seen[d]++ / Math.max(1, counts[d] - 1);
+    const a = d * SPAN + GAP + t * (SPAN - 2 * GAP) - Math.PI / 2;
+    return [Math.cos(a) * R, Math.sin(a) * R, a];
+  });
+
+  const chords = el("g", { fill: "none", "stroke-width": 0.6, "stroke-opacity": 0.45 });
+  for (let i = 0; i < digits.length - 1; i++) {
+    const [x1, y1] = slot[i], [x2, y2] = slot[i + 1];
+    el("path", { d: `M${x1.toFixed(1)},${y1.toFixed(1)} Q${((x1 + x2) * 0.15).toFixed(1)},${((y1 + y2) * 0.15).toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`, stroke: COLORS[digits[i]] }, chords);
+  }
+  // Outer arcs, ticks every occurrence, labels.
+  for (let d = 0; d < 10; d++) {
+    const a0 = d * SPAN + GAP - Math.PI / 2, a1 = (d + 1) * SPAN - GAP - Math.PI / 2, r = R + 14;
+    el("path", { d: `M${Math.cos(a0) * r},${Math.sin(a0) * r} A${r},${r} 0 0 1 ${Math.cos(a1) * r},${Math.sin(a1) * r}`, stroke: COLORS[d], "stroke-width": 6, fill: "none" });
+    const am = (a0 + a1) / 2, lr = R + 50;
+    el("text", { x: Math.cos(am) * lr, y: Math.sin(am) * lr, "text-anchor": "middle", "dominant-baseline": "central", "font-family": "Georgia, serif", "font-size": 30, fill: "#1e1b16" }).textContent = d;
+  }
+  const ticks = el("g", { stroke: "#1e1b16", "stroke-width": 0.5, "stroke-opacity": 0.5 });
+  for (const [, , a] of slot) {
+    el("line", { x1: Math.cos(a) * (R + 2), y1: Math.sin(a) * (R + 2), x2: Math.cos(a) * (R + 8), y2: Math.sin(a) * (R + 8) }, ticks);
+  }
+
+  document.getElementById("swatches").innerHTML = COLORS.map((col, d) => `<span><i style="background:${col}"></i>${d} · ${counts[d]}</span>`).join("");
+  document.getElementById("count").textContent = `${digits.slice(0, 12).join("")}… ${N} digits`;
+}
+
+for (const b of document.querySelectorAll("[data-c]")) {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("[data-c]").forEach((x) => x.classList.toggle("on", x === b));
+    draw(b.dataset.c);
+  });
+}
+document.getElementById("save").addEventListener("click", () => {
+  const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "digits.svg"; a.click();
+});
+draw("pi");
+</script>
+</body>
+</html>

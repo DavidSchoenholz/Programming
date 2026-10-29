@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow Field</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #efe8da; color: #2a2620; overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: pointer; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Tyler Hobbs</span></nav>
+<canvas id="c"></canvas>
+<div class="panel">
+  <label>spacing <input id="sep" type="range" min="2" max="16" value="5"></label>
+  <label>curl <input id="curl" type="range" min="1" max="12" value="4"></label>
+  <div class="row">
+    <button data-p="0" class="on">Ochre</button><button data-p="1">Sea</button><button data-p="2">Ink</button>
+  </div>
+  <div class="row"><button id="again">Redraw</button><button id="png">Save PNG</button></div>
+</div>
+<div class="hint">click anywhere for a new drawing</div>
+<script src="../js/noise.js"></script>
+<script>
+const PALETTES = [
+  { bg: "#efe8da", ink: ["#2a2620", "#c8553d", "#f2a541", "#3e6259", "#e9d8a6"] },
+  { bg: "#f1f0ea", ink: ["#0b3c5d", "#328cc1", "#d9b310", "#1d2731", "#9fc2cc"] },
+  { bg: "#f4f1ea", ink: ["#111111", "#111111", "#444444", "#888888"] },
+];
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr, pal = 0, seed = 11, job = 0;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+
+function draw() {
+  const my = ++job;
+  Noise.seed(seed);
+  const R = Noise.random, P = PALETTES[pal];
+  document.body.style.background = P.bg;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
+  g.lineCap = "round"; g.lineJoin = "round";
+
+  const sep = +document.getElementById("sep").value;
+  const curl = +document.getElementById("curl").value;
+  const scale = 0.0006 * curl;
+  const margin = Math.min(W, H) * 0.06;
+  const angle = (x, y) => Noise.fbm(x * scale, y * scale, 0, 2) * Math.PI * 3;
+
+  // Occupancy grid so lines keep their distance.
+  const CELL = sep;
+  const gw = Math.ceil(W / CELL), gh = Math.ceil(H / CELL);
+  const occ = new Int32Array(gw * gh).fill(-1);
+  const cellOf = (x, y) => ((y / CELL) | 0) * gw + ((x / CELL) | 0);
+  const free = (x, y, id) => {
+    if (x < margin || y < margin || x > W - margin || y > H - margin) return false;
+    const cx = (x / CELL) | 0, cy = (y / CELL) | 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const v = occ[(cy + j) * gw + cx + i];
+      if (v !== -1 && v !== id) return false;
+    }
+    return true;
+  };
+
+  // Seed points: shuffled jittered grid.
+  const seeds = [];
+  for (let y = margin; y < H - margin; y += sep * 3) for (let x = margin; x < W - margin; x += sep * 3) seeds.push([x + R() * sep * 3, y + R() * sep * 3]);
+  for (let i = seeds.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [seeds[i], seeds[j]] = [seeds[j], seeds[i]]; }
+
+  let id = 0;
+  function trace(x0, y0) {
+    if (!free(x0, y0, -2)) return;
+    const myId = id++;
+    const pts = [[x0, y0]];
+    // Walk forwards and backwards along the field.
+    for (const dir of [1, -1]) {
+      let x = x0, y = y0;
+      for (let s = 0; s < 400; s++) {
+        const a = angle(x, y);
+        const nx = x + Math.cos(a) * 2 * dir, ny = y + Math.sin(a) * 2 * dir;
+        if (!free(nx, ny, myId)) break;
+        x = nx; y = ny;
+        dir === 1 ? pts.push([x, y]) : pts.unshift([x, y]);
+        // Mark cells a couple of steps behind, so we don't collide with ourselves.
+        if (pts.length > 3) { const p = dir === 1 ? pts[pts.length - 4] : pts[3]; occ[cellOf(p[0], p[1])] = myId; }
+      }
+    }
+    for (const p of pts) occ[cellOf(p[0], p[1])] = myId;
+    if (pts.length < 6) return;
+    g.strokeStyle = P.ink[Math.floor(R() * P.ink.length)];
+    g.lineWidth = R() < 0.1 ? sep * 0.9 : sep * (0.2 + R() * 0.35);
+    g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts) g.lineTo(p[0], p[1]);
+    g.stroke();
+  }
+
+  let k = 0;
+  (function chunk() {
+    if (my !== job) return;
+    const end = Math.min(seeds.length, k + 80);
+    for (; k < end; k++) trace(seeds[k][0], seeds[k][1]);
+    if (k < seeds.length) requestAnimationFrame(chunk);
+  })();
+}
+
+cv.addEventListener("click", () => { seed++; draw(); });
+document.getElementById("again").addEventListener("click", () => { seed++; draw(); });
+for (const id of ["sep", "curl"]) document.getElementById(id).addEventListener("change", draw);
+for (const b of document.querySelectorAll("[data-p]")) b.addEventListener("click", () => {
+  pal = +b.dataset.p; document.querySelectorAll("[data-p]").forEach((x) => x.classList.toggle("on", x === b)); draw();
+});
+document.getElementById("png").addEventListener("click", () => { const a = document.createElement("a"); a.download = "flow.png"; a.href = cv.toDataURL(); a.click(); });
+addEventListener("resize", () => { size(); draw(); });
+size(); draw();
+</script>
+</body>
+</html>

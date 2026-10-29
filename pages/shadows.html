@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Shadows</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #e8e4da; color: #1e2430; overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  .panel { background: rgba(250, 248, 242, 0.88); width: 300px; }
+  .panel input[type="range"] { width: 170px; }
+  .panel select { padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; background: #fff; }
+  .readout { font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.4; }
+  .readout b { font-size: 22px; display: block; }
+  .compass { position: fixed; top: 56px; right: 18px; width: 64px; height: 64px; }
+  @media (max-width: 600px) { .panel { left: 16px; right: 16px; width: auto; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Shadowmap &amp; the NYT</span></nav>
+<canvas id="c"></canvas>
+<svg class="compass" viewBox="-32 -32 64 64" aria-hidden="true">
+  <circle r="28" fill="rgba(255,255,255,0.7)" stroke="#1e2430" stroke-width="1"/>
+  <text y="-16" text-anchor="middle" font-size="10" font-family="system-ui">N</text>
+  <g id="sunDot"><line y2="-22" stroke="#e59a1c" stroke-width="2"/><circle cy="-22" r="5" fill="#f7b733"/></g>
+</svg>
+<div class="panel">
+  <div class="readout" id="readout"></div>
+  <label>time <input id="time" type="range" min="4" max="21" step="0.05" value="9.5"></label>
+  <label>day <input id="day" type="range" min="1" max="365" value="172"></label>
+  <label>city <select id="lat">
+    <option value="40.7">New York (40.7°N)</option>
+    <option value="51.5">London (51.5°N)</option>
+    <option value="64.1">Reykjavík (64.1°N)</option>
+    <option value="1.3">Singapore (1.3°N)</option>
+    <option value="-33.9">Sydney (33.9°S)</option>
+  </select></label>
+  <div class="row"><button id="play">▶ Play day</button><button id="mode">Show whole-day shade</button><button id="regen">New city</button></div>
+</div>
+<script src="../js/noise.js"></script>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const shadowCv = document.createElement("canvas"), sg = shadowCv.getContext("2d");
+let W, H, dpr, scale, ox, oy;
+const CITY = 900; // metres across
+
+let buildings = [], parks = [];
+function makeCity(seed) {
+  Noise.seed(seed);
+  const R = Noise.random;
+  buildings = []; parks = [];
+  const BLOCK = 80, STREET = 18;
+  for (let by = 0; by < CITY; by += BLOCK + STREET) for (let bx = 0; bx < CITY; bx += BLOCK + STREET) {
+    const cx = bx + BLOCK / 2 - CITY / 2, cy = by + BLOCK / 2 - CITY / 2;
+    const centrality = Math.max(0, 1 - Math.hypot(cx, cy) / (CITY * 0.6));
+    if (R() < 0.07) { parks.push([bx, by, BLOCK, BLOCK]); continue; }
+    // Split the block into 2–3 rows of lots.
+    const rows = 2 + Math.floor(R() * 2);
+    for (let r = 0; r < rows; r++) {
+      const lotH = BLOCK / rows;
+      let x = 0;
+      while (x < BLOCK - 8) {
+        const w = Math.min(BLOCK - x, 14 + R() * 26);
+        const tower = R() < 0.12 + centrality * 0.25;
+        const base = 8 + Noise.noise2(bx * 0.01, by * 0.01) * 6 + R() * 14;
+        const h = tower ? 60 + R() * 260 * centrality + R() * 40 : base;
+        const inset = 1.5;
+        buildings.push({ x: bx + x + inset, y: by + r * lotH + inset, w: w - inset * 2, d: lotH - inset * 2, h: Math.max(6, h) });
+        x += w;
+      }
+    }
+  }
+  buildings.sort((a, b) => a.h - b.h);
+}
+
+function size() {
+  dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight;
+  cv.width = shadowCv.width = W * dpr; cv.height = shadowCv.height = H * dpr;
+  scale = Math.max(W, H) / CITY;
+  ox = W / 2 - (CITY / 2) * scale; oy = H / 2 - (CITY / 2) * scale;
+}
+
+// Sun position. Azimuth in degrees clockwise from north; altitude in degrees.
+function sun(hour, day, latDeg) {
+  const rad = Math.PI / 180, lat = latDeg * rad;
+  const decl = 23.44 * rad * Math.sin(((2 * Math.PI) / 365) * (284 + day));
+  const ha = (hour - 12) * 15 * rad;
+  const alt = Math.asin(Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(ha));
+  const az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)) + Math.PI;
+  return { alt: alt / rad, az: az / rad };
+}
+
+function drawShadows(ctx, s, color) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (s.alt <= 0.5) return false;
+  const k = 1 / Math.tan((s.alt * Math.PI) / 180);
+  const az = (s.az * Math.PI) / 180;
+  const ux = -Math.sin(az) * k, uy = Math.cos(az) * k; // shadow per metre of height, screen y = south
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (const b of buildings) {
+    const dx = ux * b.h, dy = uy * b.h;
+    const c = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.d], [b.x, b.y + b.d]].map(([x, y]) => [ox + x * scale, oy + y * scale]);
+    const sx = dx * scale, sy = dy * scale;
+    // Sweep each edge along the shadow vector; their union is the shadow.
+    // Wind every quad the same way so a single nonzero fill unions them.
+    for (let i = 0; i < 4; i++) {
+      let [x1, y1] = c[i], [x2, y2] = c[(i + 1) % 4];
+      if ((x2 - x1) * sy - (y2 - y1) * sx < 0) [x1, y1, x2, y2] = [x2, y2, x1, y1];
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x2 + sx, y2 + sy); ctx.lineTo(x1 + sx, y1 + sy); ctx.closePath();
+    }
+  }
+  ctx.fill("nonzero");
+  return true;
+}
+
+const timeEl = document.getElementById("time"), dayEl = document.getElementById("day"), latEl = document.getElementById("lat");
+let wholeDay = false, playing = false, seed = 5;
+
+function heightColor(h) {
+  const t = Math.min(1, h / 250);
+  const l = 96 - t * 22;
+  return `hsl(${40 - t * 20}, ${18 + t * 30}%, ${l}%)`;
+}
+
+function render() {
+  const hour = +timeEl.value, day = +dayEl.value, lat = +latEl.value;
+  const s = sun(hour, day, lat);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#cfcabd"; g.fillRect(0, 0, W, H); // streets
+  g.fillStyle = "#ece8de"; // blocks
+  for (let by = 0; by < CITY; by += 98) for (let bx = 0; bx < CITY; bx += 98) g.fillRect(ox + bx * scale, oy + by * scale, 80 * scale, 80 * scale);
+  g.fillStyle = "#b7cf9a";
+  for (const [x, y, w, d] of parks) g.fillRect(ox + x * scale, oy + y * scale, w * scale, d * scale);
+
+  if (wholeDay) {
+    // Average shade over daylight hours: darker = less sun all day.
+    let n = 0;
+    for (let h = 4; h <= 21; h += 0.5) if (sun(h, day, lat).alt > 0.5) n++;
+    g.globalAlpha = Math.min(0.5, 2.2 / Math.max(1, n));
+    for (let h = 4; h <= 21; h += 0.5) {
+      const sh = sun(h, day, lat);
+      if (drawShadows(sg, sh, "#2a2160")) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(shadowCv, 0, 0); g.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    }
+    g.globalAlpha = 1;
+  } else if (drawShadows(sg, s, "#2a3550")) {
+    g.globalAlpha = 0.42; g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(shadowCv, 0, 0); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.globalAlpha = 1;
+  }
+
+  for (const b of buildings) {
+    g.fillStyle = heightColor(b.h);
+    g.fillRect(ox + b.x * scale, oy + b.y * scale, b.w * scale, b.d * scale);
+    if (b.h > 60) { g.strokeStyle = "rgba(30,36,48,0.35)"; g.lineWidth = 0.6; g.strokeRect(ox + b.x * scale, oy + b.y * scale, b.w * scale, b.d * scale); }
+  }
+
+  // Night tint.
+  if (!wholeDay && s.alt < 6) { g.fillStyle = `rgba(15, 20, 50, ${Math.min(0.6, (6 - s.alt) / 14)})`; g.fillRect(0, 0, W, H); }
+
+  const hh = Math.floor(hour), mm = Math.round((hour - hh) * 60);
+  const date = new Date(2026, 0, day).toLocaleDateString(undefined, { month: "long", day: "numeric" });
+  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  document.getElementById("readout").innerHTML = wholeDay
+    ? `<b>Whole day</b>${date}, darker means less direct sun`
+    : `<b>${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}</b>${date} · ${s.alt > 0 ? `sun ${s.alt.toFixed(0)}° high, from the ${dirs[Math.round(s.az / 22.5) % 16]}` : "the sun is down"}`;
+  document.getElementById("sunDot").setAttribute("transform", `rotate(${s.az})`);
+  document.getElementById("sunDot").style.opacity = s.alt > 0 ? 1 : 0.2;
+}
+
+let last = 0;
+function loop(now) {
+  if (playing) {
+    const v = +timeEl.value + (now - last) / 1000 * 0.8;
+    timeEl.value = v > 21 ? 4 : v;
+    render();
+  }
+  last = now;
+  requestAnimationFrame(loop);
+}
+for (const el of [timeEl, dayEl, latEl]) el.addEventListener("input", render);
+document.getElementById("play").addEventListener("click", (e) => { playing = !playing; e.target.textContent = playing ? "❚❚ Pause" : "▶ Play day"; });
+document.getElementById("mode").addEventListener("click", (e) => { wholeDay = !wholeDay; e.target.textContent = wholeDay ? "Show one moment" : "Show whole-day shade"; render(); });
+document.getElementById("regen").addEventListener("click", () => { makeCity(++seed); render(); });
+addEventListener("resize", () => { size(); render(); });
+makeCity(seed); size(); render();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

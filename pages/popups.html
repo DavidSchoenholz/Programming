@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nested Previews</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root { --bg: #fff; --fg: #000; --muted: #666; --border: #bbb; --pop: #fff; --shade: #f3f3f3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --fg: #e8e8e8; --muted: #999; --border: #555; --pop: #1e1e1e; --shade: #262626; }
+  }
+  body { background: var(--bg); color: var(--fg); font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 88px 16px 160px; font-size: 19px; line-height: 1.6; }
+  h1 { font-variant: small-caps; font-weight: 400; font-size: 40px; text-align: center; margin: 0 0 4px; letter-spacing: 0.02em; }
+  .dek { text-align: center; color: var(--muted); font-style: italic; margin: 0 0 32px; font-size: 16px; }
+  .abstract { border: 1px solid var(--border); background: var(--shade); padding: 14px 18px; font-size: 16px; margin-bottom: 32px; }
+  p { text-align: justify; hyphens: auto; }
+  main p.first::first-letter { float: left; font-size: 3.4em; line-height: 0.9; padding: 4px 6px 0 0; }
+  a[data-note] { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a[data-note]::after { content: "◇"; font-size: 0.6em; vertical-align: super; margin-left: 1px; color: var(--muted); }
+  a[data-note].hot { background: var(--shade); }
+  .popup {
+    position: absolute; width: min(420px, calc(100vw - 24px)); max-height: 340px; overflow: auto;
+    background: var(--pop); border: 1px double var(--border); border-width: 3px; padding: 12px 16px;
+    font-size: 15px; line-height: 1.55; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    opacity: 0; transform: translateY(4px); transition: opacity 120ms, transform 120ms;
+  }
+  .popup.in { opacity: 1; transform: none; }
+  .popup .bar { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border); margin: -4px 0 8px; padding-bottom: 4px; }
+  .popup .bar b { font-variant: small-caps; font-size: 17px; }
+  .popup .bar small { color: var(--muted); font-size: 12px; }
+  .popup p { margin: 0 0 8px; text-align: left; }
+  .popup p::first-letter { all: unset; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Gwern Branwen</span></nav>
+<main id="article"></main>
+<script src="../js/notes.js"></script>
+<script>
+document.getElementById("article").innerHTML = `
+  <h1>On Lines, Light &amp; Links</h1>
+  <p class="dek">An essay to wander through, not read straight</p>
+  <div class="abstract">Hover any underlined link to preview it. Hover a link <em>inside</em> the preview and another opens on top. Move away and they fold back up, innermost first.</div>
+  <p class="first">It started with maps. A city reduced to its roads is ${link("city-roads", "oddly recognisable")}, and a mountain reduced to its ${link("contours", "contour lines")} is still a mountain. Once you notice it, ${link("lines", "everything is lines")}: a field of wind, a sheet of music, a plotter drawing a portrait without ever lifting more than one pen.</p>
+  <p>The randomness underneath most generative drawing is not really random. It is ${link("noise", "noise")}, smooth and repeatable, and if you read it as a direction you get ${link("flow-fields", "flow fields")}. Draw those for a ${link("plotters", "pen plotter")} and the constraint makes the work better.</p>
+  <p>Cities also draw with ${link("shadows", "shadows")}. Every tower drags a dark shape across the street, and the shape changes by the hour. Shadows are where ${link("light", "light")} becomes visible, which is why so many light sketches are really shadow sketches.</p>
+  <p>On the screen, the equivalent of light is motion. ${link("springs", "Springs")} make movement feel physical, but only with ${link("restraint", "restraint")}; the best effects are ${link("slowness", "slow")} enough that you are never quite sure they are moving.</p>
+  <p>Finally, this page itself. A ${link("gardens", "digital garden")} is a web of notes where ${link("linking", "links are the content")}. You can draw that web as ${link("network", "a glowing network")}, open its pages ${link("stacked", "side by side")}, or do what this page does and nest ${link("popups", "previews inside previews")} until you forget where you started.</p>`;
+function link(id, text) { return `<a href="garden.html#${id}" data-note="${id}">${text}</a>`; }
+
+// A stack of open popups. Each knows the link that spawned it.
+const stack = [];
+let openTimer, closeTimer;
+
+function depthOf(el) {
+  const pop = el.closest(".popup");
+  return pop ? stack.findIndex((s) => s.el === pop) + 1 : 0;
+}
+
+function openPopup(a) {
+  const depth = depthOf(a);
+  // Close anything deeper than where this link lives.
+  while (stack.length > depth) closeTop();
+  const n = NOTE_BY_ID[a.dataset.note];
+  const el = document.createElement("div");
+  el.className = "popup";
+  el.innerHTML = `<div class="bar"><b>${n.title}</b><small>${n.stage} · ${n.updated}</small></div>${renderNoteBody(n.body, (id) => "garden.html#" + id)}`;
+  document.body.appendChild(el);
+  a.classList.add("hot");
+  // Position below (or above) the link, kept inside the viewport.
+  const r = a.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let x = r.left + scrollX + depth * 12;
+  x = Math.max(scrollX + 12, Math.min(x, scrollX + innerWidth - w - 12));
+  let y = r.bottom + scrollY + 6;
+  if (r.bottom + h + 12 > innerHeight && r.top - h - 6 > 0) y = r.top + scrollY - h - 6;
+  el.style.left = x + "px"; el.style.top = y + "px"; el.style.zIndex = 100 + depth;
+  requestAnimationFrame(() => el.classList.add("in"));
+  stack.push({ el, link: a });
+  el.addEventListener("mouseenter", () => clearTimeout(closeTimer));
+  el.addEventListener("mouseleave", scheduleClose);
+}
+function closeTop() {
+  const { el, link } = stack.pop();
+  link.classList.remove("hot");
+  el.remove();
+}
+function scheduleClose(e) {
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(() => {
+    // Keep everything up to whatever the pointer is now over.
+    const over = document.elementFromPoint(lastX, lastY);
+    const keep = over ? depthOf(over) + (over.closest("a[data-note].hot") ? 1 : 0) : 0;
+    while (stack.length > keep) closeTop();
+  }, 350);
+}
+let lastX = 0, lastY = 0;
+addEventListener("pointermove", (e) => { lastX = e.clientX; lastY = e.clientY; });
+
+document.addEventListener("mouseover", (e) => {
+  const a = e.target.closest("a[data-note]");
+  if (!a) return;
+  clearTimeout(closeTimer);
+  if (a.classList.contains("hot")) return;
+  clearTimeout(openTimer);
+  openTimer = setTimeout(() => openPopup(a), 220);
+});
+document.addEventListener("mouseout", (e) => {
+  const a = e.target.closest("a[data-note]");
+  if (a) { clearTimeout(openTimer); scheduleClose(); }
+});
+// Touch: first tap previews, second tap follows.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-note]");
+  if (!a || !matchMedia("(hover: none)").matches) return;
+  if (!a.classList.contains("hot")) { e.preventDefault(); openPopup(a); }
+});
+addEventListener("keydown", (e) => { if (e.key === "Escape") while (stack.length) closeTop(); });
+</script>
+</body>
+</html>

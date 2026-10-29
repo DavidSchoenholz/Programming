@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glowing Web</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #07070d; color: #e9e6ff; overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .card {
+    position: fixed; left: 16px; bottom: 16px; width: min(340px, calc(100vw - 32px)); padding: 14px 16px; border-radius: 12px;
+    background: rgba(20, 18, 40, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08);
+    font-size: 14px; opacity: 0; transform: translateY(8px); transition: opacity 200ms, transform 200ms; pointer-events: none;
+  }
+  .card.show { opacity: 1; transform: none; }
+  .card b { font-size: 16px; display: block; margin-bottom: 4px; }
+  .card small { color: #a29ccf; }
+  .hint { color: #a29ccf; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Nadieh Bremer &amp; Shirley Wu</span></nav>
+<canvas id="c"></canvas>
+<div class="card" id="card"><b></b><small></small><p style="margin:6px 0 0"></p></div>
+<div class="hint">hover to light up a neighbourhood · drag to rearrange · click to open</div>
+<script src="../js/notes.js"></script>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+addEventListener("resize", size); size();
+
+const TAG_COLORS = { drawing: [255, 120, 180], maps: [110, 200, 255], cities: [255, 190, 90], light: [255, 240, 140], motion: [160, 130, 255], code: [120, 255, 200], craft: [255, 150, 110], web: [140, 170, 255] };
+const nodes = [], byId = {};
+function add(n) { n.x = W / 2 + (Math.random() - 0.5) * 300; n.y = H / 2 + (Math.random() - 0.5) * 300; n.vx = n.vy = 0; nodes.push(n); byId[n.id] = n; return n; }
+for (const tag of Object.keys(TAG_COLORS)) add({ id: "#" + tag, label: "#" + tag, kind: "tag", color: TAG_COLORS[tag], r: 5 });
+for (const note of NOTES) add({ id: note.id, label: note.title, kind: "note", note, color: TAG_COLORS[note.tags[0]], r: 4 });
+
+const edges = [];
+for (const [a, b] of noteLinks()) edges.push({ a: byId[a], b: byId[b], kind: "link" });
+for (const note of NOTES) for (const t of note.tags) edges.push({ a: byId[note.id], b: byId["#" + t], kind: "tag" });
+for (const e of edges) { e.a.deg = (e.a.deg || 0) + 1; e.b.deg = (e.b.deg || 0) + 1; }
+for (const n of nodes) n.r = (n.kind === "tag" ? 6 : 3) + Math.sqrt(n.deg || 1) * 2.2;
+const neighbours = new Map(nodes.map((n) => [n, new Set([n])]));
+for (const e of edges) { neighbours.get(e.a).add(e.b); neighbours.get(e.b).add(e.a); }
+
+// Little sparks that travel along edges.
+const sparks = edges.flatMap((e) => Array.from({ length: e.kind === "link" ? 3 : 1 }, () => ({ e, t: Math.random(), speed: 0.001 + Math.random() * 0.003 })));
+
+// Background dust.
+const dust = Array.from({ length: 220 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.2, tw: Math.random() * 6 }));
+
+let hover = null, drag = null, alpha = 1;
+function simulate() {
+  alpha = Math.max(alpha * 0.995, 0.02);
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy + 0.01;
+      const f = (2200 / d2) * alpha;
+      const d = Math.sqrt(d2); dx /= d; dy /= d;
+      a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+    }
+  }
+  for (const e of edges) {
+    const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, d = Math.hypot(dx, dy) || 1;
+    const rest = e.kind === "tag" ? 130 : 90;
+    const f = ((d - rest) / d) * 0.02 * alpha;
+    e.a.vx += dx * f; e.a.vy += dy * f; e.b.vx -= dx * f; e.b.vy -= dy * f;
+  }
+  for (const n of nodes) {
+    n.vx += (W / 2 - n.x) * 0.0015 * alpha; n.vy += (H / 2 - n.y) * 0.0015 * alpha;
+    if (n === drag) continue;
+    n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx; n.y += n.vy;
+  }
+}
+
+function glow(x, y, r, [cr, cg, cb], a) {
+  const grd = g.createRadialGradient(x, y, 0, x, y, r);
+  grd.addColorStop(0, `rgba(${cr},${cg},${cb},${a})`);
+  grd.addColorStop(0.25, `rgba(${cr},${cg},${cb},${a * 0.35})`);
+  grd.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+  g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+}
+
+let t = 0;
+function frame() {
+  t += 0.016;
+  simulate();
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = "#07070d"; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = "lighter";
+  for (const d of dust) { g.fillStyle = `rgba(180,170,255,${0.15 + 0.15 * Math.sin(t + d.tw)})`; g.fillRect(d.x * W, d.y * H, d.r, d.r); }
+
+  const lit = hover ? neighbours.get(hover) : null;
+  const on = (n) => !lit || lit.has(n);
+
+  for (const e of edges) {
+    const active = !lit || (lit.has(e.a) && lit.has(e.b) && (e.a === hover || e.b === hover));
+    const [r, gg, b] = e.a.color;
+    g.strokeStyle = `rgba(${r},${gg},${b},${active ? (e.kind === "link" ? 0.35 : 0.14) : 0.03})`;
+    g.lineWidth = e.kind === "link" ? 1.2 : 0.6;
+    // Gentle curve so parallel edges don't stack.
+    const mx = (e.a.x + e.b.x) / 2 + (e.b.y - e.a.y) * 0.15, my = (e.a.y + e.b.y) / 2 - (e.b.x - e.a.x) * 0.15;
+    e.mx = mx; e.my = my;
+    g.beginPath(); g.moveTo(e.a.x, e.a.y); g.quadraticCurveTo(mx, my, e.b.x, e.b.y); g.stroke();
+  }
+  for (const s of sparks) {
+    s.t = (s.t + s.speed) % 1;
+    const { a, b, mx, my } = s.e, u = s.t, v = 1 - u;
+    const x = v * v * a.x + 2 * v * u * mx + u * u * b.x, y = v * v * a.y + 2 * v * u * my + u * u * b.y;
+    const active = !lit || (s.e.a === hover || s.e.b === hover);
+    glow(x, y, 6, a.color, active ? 0.6 : 0.05);
+  }
+  for (const n of nodes) {
+    const k = on(n) ? 1 : 0.12;
+    const pulse = 1 + Math.sin(t * 2 + n.x * 0.01) * 0.08;
+    glow(n.x, n.y, n.r * 6 * pulse, n.color, 0.35 * k);
+    glow(n.x, n.y, n.r * 1.6, [255, 255, 255], 0.9 * k);
+  }
+  g.globalCompositeOperation = "source-over";
+  g.font = "12px system-ui"; g.textAlign = "center";
+  for (const n of nodes) {
+    if (!(n.kind === "tag" || (lit && lit.has(n)))) continue;
+    g.fillStyle = on(n) ? (n.kind === "tag" ? `rgb(${n.color})` : "#fff") : "rgba(255,255,255,0.15)";
+    g.fillText(n.label, n.x, n.y - n.r - 10);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+const card = document.getElementById("card");
+function pick(x, y) { let best = null, bd = 400; for (const n of nodes) { const d = (n.x - x) ** 2 + (n.y - y) ** 2; if (d < Math.max(bd, n.r * n.r * 4)) { bd = d; best = n; } } return best; }
+let downAt = null;
+cv.addEventListener("pointerdown", (e) => { drag = pick(e.clientX, e.clientY); downAt = [e.clientX, e.clientY]; if (drag) { cv.setPointerCapture(e.pointerId); alpha = Math.max(alpha, 0.3); } });
+cv.addEventListener("pointermove", (e) => {
+  if (drag) { drag.x = e.clientX; drag.y = e.clientY; alpha = Math.max(alpha, 0.3); }
+  const h = drag || pick(e.clientX, e.clientY);
+  if (h !== hover) {
+    hover = h;
+    cv.style.cursor = h ? "pointer" : "default";
+    if (h) {
+      card.querySelector("b").textContent = h.label;
+      card.querySelector("small").textContent = h.kind === "tag" ? `${h.deg} notes` : `${h.note.stage} · ${h.note.tags.map((x) => "#" + x).join(" ")}`;
+      card.querySelector("p").textContent = h.kind === "note" ? h.note.body.replace(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g, (_, id, l) => l || NOTE_BY_ID[id].title).slice(0, 140) + "…" : "A tag. Everything connected to it lights up.";
+    }
+    card.classList.toggle("show", !!h);
+  }
+});
+cv.addEventListener("pointerup", (e) => {
+  const moved = downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4;
+  if (drag && !moved && drag.kind === "note") location.href = "garden.html#" + drag.id;
+  drag = null;
+});
+</script>
+</body>
+</html>

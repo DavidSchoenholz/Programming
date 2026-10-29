@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toy Car World</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #f0a868; color: #3a1d0b; overflow: hidden; height: 100vh; }
+  canvas { display: block; }
+  #zone {
+    position: fixed; top: 60px; left: 50%; transform: translate(-50%, -20px);
+    background: #fff7ee; color: #3a1d0b; padding: 14px 20px; border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(80, 30, 0, 0.2); text-align: center;
+    opacity: 0; transition: opacity 250ms, transform 350ms cubic-bezier(.2,1.4,.4,1);
+    pointer-events: none; max-width: calc(100vw - 32px);
+  }
+  #zone.show { opacity: 1; transform: translate(-50%, 0); }
+  #zone b { display: block; font-size: 18px; }
+  .pad { position: fixed; bottom: 20px; display: none; gap: 10px; z-index: 10; }
+  .pad.l { left: 16px; } .pad.r { right: 16px; }
+  .pad button {
+    width: 64px; height: 64px; border-radius: 50%; border: 0;
+    background: rgba(255,255,255,0.6); color: #3a1d0b; font-size: 22px; touch-action: none;
+  }
+  @media (pointer: coarse) { .pad { display: flex; } .hint { display: none; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Bruno Simon</span></nav>
+<div id="zone"><b></b><span></span></div>
+<div class="hint">WASD or arrow keys to drive · space to brake · R to reset</div>
+<div class="pad l"><button data-k="left">◀</button><button data-k="right">▶</button></div>
+<div class="pad r"><button data-k="down">▼</button><button data-k="up">▲</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#f0a868");
+scene.fog = new THREE.Fog("#f0a868", 40, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+scene.add(new THREE.HemisphereLight("#fff4e0", "#a0522d", 0.7));
+const sun = new THREE.DirectionalLight("#ffffff", 0.8);
+sun.position.set(10, 20, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, near: 1, far: 60 });
+scene.add(sun, sun.target);
+
+const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+function box(w, h, d, color) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+
+// Ground.
+const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 64), mat("#f0a868"));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Car.
+const car = new THREE.Group();
+const body = box(1.6, 0.5, 2.6, "#e8463a"); body.position.y = 0.55;
+const cabin = box(1.3, 0.5, 1.3, "#fff2e2"); cabin.position.set(0, 1.05, -0.2);
+car.add(body, cabin);
+const wheels = [];
+for (const [x, z] of [[-0.85, 0.85], [0.85, 0.85], [-0.85, -0.85], [0.85, -0.85]]) {
+  const w = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16), mat("#2b1a12"));
+  w.rotation.z = Math.PI / 2; w.position.set(x, 0.35, z); w.castShadow = true;
+  car.add(w); wheels.push(w);
+}
+scene.add(car);
+
+// Pushable crates and fixed trees.
+const crates = [];
+function addCrate(x, z, s = 1) {
+  const m = box(s, s, s, "#ffd79a");
+  m.position.set(x, s / 2, z);
+  scene.add(m);
+  crates.push({ m, vx: 0, vz: 0, r: s * 0.7 });
+}
+for (let i = 0; i < 4; i++) for (let j = 0; j <= i; j++) addCrate(8 + j - i / 2, -10 - i * 1.05);
+for (let i = 0; i < 6; i++) addCrate(-12 + Math.cos(i) * 3, 6 + Math.sin(i) * 3, 0.8);
+
+const trees = [];
+function addTree(x, z) {
+  const g = new THREE.Group();
+  const trunk = box(0.4, 1, 0.4, "#7a3e1d"); trunk.position.y = 0.5;
+  const top = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.4, 6), mat("#5f8f3a"));
+  top.position.y = 2.1; top.castShadow = true;
+  g.add(trunk, top); g.position.set(x, 0, z);
+  scene.add(g); trees.push({ x, z, r: 0.8 });
+}
+for (let i = 0; i < 26; i++) {
+  const a = i * 2.4, r = 18 + (i % 5) * 4;
+  addTree(Math.cos(a) * r, Math.sin(a) * r);
+}
+
+// Zones: walk in to reveal a little card.
+function label(text) {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff7ee"; g.font = "bold 72px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(text, 256, 64);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+  m.rotation.x = -Math.PI / 2;
+  return m;
+}
+const zones = [
+  { x: 0, z: -14, title: "Projects", text: "A shelf of things I made. (placeholder)" },
+  { x: 14, z: 6, title: "About", text: "Who I am, in one sentence. (placeholder)" },
+  { x: -14, z: -4, title: "Contact", text: "Say hi. (placeholder)" },
+];
+for (const zn of zones) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(2.6, 3, 48), new THREE.MeshBasicMaterial({ color: "#fff7ee" }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(zn.x, 0.02, zn.z);
+  const l = label(zn.title); l.position.set(zn.x, 0.03, zn.z + 4.2);
+  scene.add(ring, l);
+}
+const zoneEl = document.getElementById("zone");
+
+// Input.
+const keys = {};
+const map = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Space: "brake" };
+addEventListener("keydown", (e) => {
+  if (map[e.code]) { keys[map[e.code]] = true; e.preventDefault(); }
+  if (e.code === "KeyR") reset();
+});
+addEventListener("keyup", (e) => { if (map[e.code]) keys[map[e.code]] = false; });
+for (const b of document.querySelectorAll(".pad button")) {
+  b.addEventListener("pointerdown", () => (keys[b.dataset.k] = true));
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) b.addEventListener(ev, () => (keys[b.dataset.k] = false));
+}
+
+const state = { x: 0, z: 0, heading: 0, speed: 0, steer: 0 };
+function reset() { Object.assign(state, { x: 0, z: 0, heading: 0, speed: 0, steer: 0 }); }
+
+let last = performance.now();
+const camPos = new THREE.Vector3(0, 18, 18);
+function tick(now) {
+  const dt = Math.min((now - last) / 1000, 0.05); last = now;
+
+  // Car physics: accelerate, steer proportional to speed, friction.
+  const accel = (keys.up ? 22 : 0) - (keys.down ? 14 : 0);
+  state.speed += accel * dt;
+  state.speed *= keys.brake ? 0.9 : 0.985;
+  state.speed = Math.max(-8, Math.min(16, state.speed));
+  const steerTarget = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+  state.steer += (steerTarget - state.steer) * Math.min(1, dt * 10);
+  state.heading += state.steer * state.speed * dt * 0.18;
+  state.x += Math.sin(state.heading) * state.speed * dt;
+  state.z += Math.cos(state.heading) * state.speed * dt;
+  const dist = Math.hypot(state.x, state.z);
+  if (dist > 55) { state.x *= 55 / dist; state.z *= 55 / dist; state.speed *= 0.5; }
+
+  // Trees are solid.
+  for (const t of trees) {
+    const dx = state.x - t.x, dz = state.z - t.z, d = Math.hypot(dx, dz), min = t.r + 1.2;
+    if (d < min) { state.x = t.x + (dx / d) * min; state.z = t.z + (dz / d) * min; state.speed *= -0.3; }
+  }
+
+  // Crates get shoved.
+  for (const c of crates) {
+    const dx = c.m.position.x - state.x, dz = c.m.position.z - state.z, d = Math.hypot(dx, dz) || 1, min = c.r + 1.1;
+    if (d < min) {
+      const push = (min - d);
+      c.m.position.x += (dx / d) * push; c.m.position.z += (dz / d) * push;
+      c.vx += (dx / d) * Math.abs(state.speed) * 0.6; c.vz += (dz / d) * Math.abs(state.speed) * 0.6;
+      state.speed *= 0.96;
+    }
+  }
+  for (let i = 0; i < crates.length; i++) {
+    const a = crates[i];
+    for (let j = i + 1; j < crates.length; j++) {
+      const b = crates[j];
+      const dx = b.m.position.x - a.m.position.x, dz = b.m.position.z - a.m.position.z, d = Math.hypot(dx, dz) || 1, min = a.r + b.r - 0.2;
+      if (d < min) {
+        const p = (min - d) / 2, nx = dx / d, nz = dz / d;
+        a.m.position.x -= nx * p; a.m.position.z -= nz * p; b.m.position.x += nx * p; b.m.position.z += nz * p;
+        const rv = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+        if (rv < 0) { a.vx += rv * nx * 0.5; a.vz += rv * nz * 0.5; b.vx -= rv * nx * 0.5; b.vz -= rv * nz * 0.5; }
+      }
+    }
+    a.m.position.x += a.vx * dt; a.m.position.z += a.vz * dt;
+    a.m.rotation.y += (Math.abs(a.vx) + Math.abs(a.vz)) * dt * 0.3;
+    a.vx *= 0.94; a.vz *= 0.94;
+  }
+
+  car.position.set(state.x, 0, state.z);
+  car.rotation.y = state.heading;
+  car.rotation.z = -state.steer * state.speed * 0.006; // a little body roll
+  for (const w of wheels) w.rotation.x += state.speed * dt * 2;
+  wheels[0].rotation.y = wheels[1].rotation.y = state.steer * 0.4;
+
+  // Smooth follow camera.
+  camPos.lerp(new THREE.Vector3(state.x + 12, 16, state.z + 14), Math.min(1, dt * 3));
+  camera.position.copy(camPos);
+  camera.lookAt(state.x, 0, state.z);
+  sun.position.set(state.x + 10, 20, state.z + 8);
+  sun.target.position.set(state.x, 0, state.z);
+
+  const inZone = zones.find((zn) => Math.hypot(zn.x - state.x, zn.z - state.z) < 3);
+  if (inZone) { zoneEl.querySelector("b").textContent = inZone.title; zoneEl.querySelector("span").textContent = inZone.text; }
+  zoneEl.classList.toggle("show", !!inZone);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

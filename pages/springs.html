@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spring Playground</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  :root { --bg: #fffaf2; --fg: #2a1b3d; --muted: #7d6f8a; --card: #fff; --accent: #ff5d73; --accent2: #6c5ce7; --border: #efe3d3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #17121f; --fg: #f3ecff; --muted: #a497b5; --card: #211a2d; --accent: #ff7a8c; --accent2: #a29bfe; --border: #31283f; }
+  }
+  body { background: var(--bg); color: var(--fg); }
+  main { max-width: 760px; margin: 0 auto; padding: 88px 16px 120px; }
+  h1 { font-size: clamp(32px, 6vw, 52px); margin: 0 0 8px; letter-spacing: -0.02em; }
+  .lead { color: var(--muted); font-size: 18px; margin: 0 0 40px; }
+  section { margin: 48px 0; }
+  h2 { font-size: 20px; margin: 0 0 6px; }
+  section > p { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; position: relative; overflow: hidden; }
+  #pull { height: 280px; touch-action: none; }
+  #pull canvas { width: 100%; height: 100%; display: block; }
+  .controls { display: flex; flex-wrap: wrap; gap: 16px 28px; padding: 14px 18px; border-top: 1px solid var(--border); font-size: 14px; }
+  .controls label { display: flex; gap: 10px; align-items: center; }
+  .controls output { font-variant-numeric: tabular-nums; min-width: 32px; color: var(--muted); }
+  input[type="range"] { accent-color: var(--accent); }
+  .boops { display: flex; justify-content: center; gap: 28px; padding: 40px 16px; flex-wrap: wrap; }
+  .boop { width: 72px; height: 72px; border-radius: 20px; background: var(--bg); display: grid; place-items: center; cursor: pointer; border: 0; color: var(--fg); }
+  .boop svg { width: 34px; height: 34px; will-change: transform; }
+  #chase { height: 300px; cursor: none; touch-action: none; }
+  .dot { position: absolute; left: 0; top: 0; border-radius: 50%; pointer-events: none; will-change: transform; }
+  .toggle { width: 88px; height: 48px; border-radius: 99px; background: var(--border); border: 0; position: relative; cursor: pointer; transition: background 200ms; }
+  .toggle.on { background: var(--accent2); }
+  .knob { position: absolute; top: 6px; left: 6px; width: 36px; height: 36px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.2); will-change: transform; }
+  .center { display: flex; justify-content: center; padding: 40px; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Josh Comeau</span></nav>
+<main>
+  <h1>Springs, not curves.</h1>
+  <p class="lead">Every animation on this page is the same twenty lines of physics: a mass, a spring pulling it home, and some friction. Change the numbers and the personality changes.</p>
+
+  <section>
+    <h2>1. Pull and let go</h2>
+    <p>Drag the ball anywhere. The trace underneath shows its distance from home over time.</p>
+    <div class="card">
+      <div id="pull"><canvas></canvas></div>
+      <div class="controls">
+        <label>stiffness <input id="k" type="range" min="20" max="400" value="170"><output id="ko">170</output></label>
+        <label>damping <input id="c" type="range" min="1" max="40" value="10"><output id="co">10</output></label>
+        <label>mass <input id="m" type="range" min="0.2" max="4" step="0.1" value="1"><output id="mo">1</output></label>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Boop</h2>
+    <p>Hover (or tap) an icon. It gets nudged, then the spring brings it back.</p>
+    <div class="card boops">
+      <button class="boop" data-rot="20" aria-label="Star"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>
+      <button class="boop" data-scale="1.25" aria-label="Heart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></button>
+      <button class="boop" data-y="-10" aria-label="Arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+      <button class="boop" data-rot="-180" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Follow the leader</h2>
+    <p>Each dot springs towards the one in front. Move your pointer inside the box.</p>
+    <div class="card" id="chase"></div>
+  </section>
+
+  <section>
+    <h2>4. A switch with some give</h2>
+    <p>Same spring, low damping. It overshoots a little, like a real thing would.</p>
+    <div class="card center"><button class="toggle" id="toggle" aria-pressed="false" aria-label="Toggle"><span class="knob"></span></button></div>
+  </section>
+</main>
+
+<script>
+// One spring, any number of dimensions. Semi-implicit Euler, fixed substeps.
+class Spring {
+  constructor(value = 0, { k = 170, c = 26, m = 1 } = {}) {
+    this.x = value; this.v = 0; this.target = value;
+    this.k = k; this.c = c; this.m = m;
+  }
+  step(dt) {
+    const n = Math.ceil(dt / (1 / 240));
+    const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      const a = (-this.k * (this.x - this.target) - this.c * this.v) / this.m;
+      this.v += a * h;
+      this.x += this.v * h;
+    }
+  }
+  get resting() { return Math.abs(this.v) < 0.01 && Math.abs(this.x - this.target) < 0.01; }
+}
+
+const springs = new Set();
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 30); last = now;
+  for (const fn of springs) fn(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// 1. Pull and let go.
+{
+  const host = document.getElementById("pull"), cv = host.querySelector("canvas"), g = cv.getContext("2d");
+  const sx = new Spring(0), sy = new Spring(0);
+  const inputs = ["k", "c", "m"].map((id) => document.getElementById(id));
+  function sync() {
+    for (const s of [sx, sy]) { s.k = +inputs[0].value; s.c = +inputs[1].value; s.m = +inputs[2].value; }
+    for (const i of inputs) document.getElementById(i.id + "o").textContent = i.value;
+  }
+  inputs.forEach((i) => i.addEventListener("input", sync)); sync();
+  let drag = false, W, H;
+  const trace = [];
+  function size() { const r = host.getBoundingClientRect(); W = r.width; H = r.height; cv.width = W * devicePixelRatio; cv.height = H * devicePixelRatio; }
+  addEventListener("resize", size); size();
+  const toLocal = (e) => { const r = host.getBoundingClientRect(); return [e.clientX - r.left - W / 2, e.clientY - r.top - H / 2]; };
+  host.addEventListener("pointerdown", (e) => { drag = true; host.setPointerCapture(e.pointerId); [sx.x, sy.x] = toLocal(e); sx.v = sy.v = 0; });
+  host.addEventListener("pointermove", (e) => { if (drag) { const [x, y] = toLocal(e); sx.v = (x - sx.x) * 30; sy.v = (y - sy.x) * 30; sx.x = x; sy.x = y; } });
+  host.addEventListener("pointerup", () => (drag = false));
+  springs.add((dt) => {
+    if (!drag) { sx.step(dt); sy.step(dt); }
+    trace.push(Math.hypot(sx.x, sy.x)); if (trace.length > 300) trace.shift();
+    g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    g.clearRect(0, 0, W, H);
+    // trace
+    g.strokeStyle = css("--border"); g.lineWidth = 2; g.beginPath();
+    trace.forEach((d, i) => { const x = (i / 300) * W, y = H - 10 - Math.min(d, 200) * 0.4; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+    const cx = W / 2, cy = H / 2;
+    // band
+    g.strokeStyle = css("--muted"); g.setLineDash([4, 6]); g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + sx.x, cy + sy.x); g.stroke(); g.setLineDash([]);
+    g.fillStyle = css("--border"); g.beginPath(); g.arc(cx, cy, 6, 0, 7); g.fill();
+    // ball squashes along its velocity
+    const sp = Math.hypot(sx.v, sy.v), stretch = Math.min(sp / 3000, 0.35);
+    g.save(); g.translate(cx + sx.x, cy + sy.x); g.rotate(Math.atan2(sy.v, sx.v)); g.scale(1 + stretch, 1 - stretch * 0.6);
+    g.fillStyle = css("--accent"); g.beginPath(); g.arc(0, 0, 26, 0, 7); g.fill(); g.restore();
+  });
+}
+
+// 2. Boop.
+for (const el of document.querySelectorAll(".boop")) {
+  const svg = el.querySelector("svg");
+  const s = new Spring(0, { k: 300, c: 10 });
+  const rot = +(el.dataset.rot || 0), scale = +(el.dataset.scale || 1) - 1, y = +(el.dataset.y || 0);
+  const boop = () => { s.target = 1; setTimeout(() => (s.target = 0), 150); };
+  el.addEventListener("mouseenter", boop);
+  el.addEventListener("click", boop);
+  springs.add((dt) => {
+    s.step(dt);
+    svg.style.transform = `translateY(${s.x * y}px) rotate(${s.x * rot}deg) scale(${1 + s.x * scale})`;
+  });
+}
+
+// 3. Follow the leader.
+{
+  const host = document.getElementById("chase");
+  const N = 14, dots = [];
+  for (let i = 0; i < N; i++) {
+    const el = document.createElement("div"); el.className = "dot";
+    const size = 28 - i * 1.5; el.style.width = el.style.height = size + "px";
+    el.style.marginLeft = el.style.marginTop = -size / 2 + "px";
+    el.style.background = i % 2 ? "var(--accent2)" : "var(--accent)";
+    el.style.opacity = 1 - i / (N + 4);
+    host.appendChild(el);
+    dots.push({ el, x: new Spring(200, { k: 220, c: 18 }), y: new Spring(150, { k: 220, c: 18 }) });
+  }
+  let tx = 200, ty = 150, t = 0, active = false;
+  host.addEventListener("pointermove", (e) => { const r = host.getBoundingClientRect(); tx = e.clientX - r.left; ty = e.clientY - r.top; active = true; });
+  host.addEventListener("pointerleave", () => (active = false));
+  springs.add((dt) => {
+    t += dt;
+    if (!active) { const r = host.getBoundingClientRect(); tx = r.width / 2 + Math.cos(t) * r.width * 0.3; ty = r.height / 2 + Math.sin(t * 2) * 70; }
+    dots.forEach((d, i) => {
+      const lead = i === 0 ? { x: tx, y: ty } : { x: dots[i - 1].x.x, y: dots[i - 1].y.x };
+      d.x.target = lead.x; d.y.target = lead.y; d.x.step(dt); d.y.step(dt);
+      d.el.style.transform = `translate(${d.x.x}px, ${d.y.x}px)`;
+    });
+  });
+}
+
+// 4. Wobbly toggle.
+{
+  const btn = document.getElementById("toggle"), knob = btn.querySelector(".knob");
+  const s = new Spring(0, { k: 260, c: 9 }), squash = new Spring(1, { k: 300, c: 12 });
+  btn.addEventListener("click", () => {
+    const on = btn.classList.toggle("on"); btn.setAttribute("aria-pressed", on);
+    s.target = on ? 40 : 0; squash.x = 1.35;
+  });
+  springs.add((dt) => { s.step(dt); squash.step(dt); knob.style.transform = `translateX(${s.x}px) scaleX(${squash.x}) scaleY(${2 - squash.x})`; });
+}
+</script>
+</body>
+</html>

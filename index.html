@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sketchbook</title>
+<link rel="stylesheet" href="css/base.css">
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --fg: #1d1c1a;
+    --muted: #7a756b;
+    --line: rgba(60, 52, 40, 0.16);
+    --accent: #c4512b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12130f;
+      --fg: #ecebe4;
+      --muted: #8e8b80;
+      --line: rgba(230, 220, 190, 0.12);
+      --accent: #f08a5d;
+    }
+  }
+  body { background: var(--bg); color: var(--fg); min-height: 100vh; }
+  #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 72px 16px 96px;
+  }
+  header h1 {
+    font-family: Georgia, "Iowan Old Style", serif;
+    font-weight: 400;
+    font-size: clamp(40px, 7vw, 72px);
+    line-height: 1;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+  }
+  header p { max-width: 560px; color: var(--muted); margin: 0; }
+  section { margin-top: 56px; }
+  section h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 24px; }
+  li a {
+    display: block;
+    padding: 12px 12px 12px 0;
+    color: inherit;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: transform 180ms cubic-bezier(.2,.8,.2,1);
+  }
+  li a:hover { transform: translateX(6px); }
+  li a:hover .t { color: var(--accent); }
+  .t { font-size: 17px; font-weight: 500; transition: color 150ms; }
+  .t::after { content: " →"; opacity: 0; transition: opacity 150ms; }
+  li a:hover .t::after { opacity: 1; }
+  .d { font-size: 14px; color: var(--muted); }
+  .by { font-size: 12px; color: var(--muted); opacity: 0.8; margin-top: 2px; }
+  footer { margin-top: 72px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<main>
+  <header>
+    <h1>Sketchbook</h1>
+    <p>Low-fi first drafts of ideas worth stealing from. Each page is one idea, built small, so we can pick the good ones and grow them later. The lines behind this text are drifting contours.</p>
+  </header>
+  <div id="groups"></div>
+  <footer>Plain HTML, CSS and JS. No build step. Open any file directly.</footer>
+</main>
+
+<script src="js/noise.js"></script>
+<script src="js/contour.js"></script>
+<script>
+const GROUPS = [
+  ["Motion & craft", [
+    ["drive.html", "Toy car world", "Drive a little car around a 3D island. Push crates, find zones.", "after Bruno Simon"],
+    ["details.html", "Small details", "Copy ticks, toast stacks, sliding highlights, hold to delete, ⌘K.", "after Rauno Freiberg & Emil Kowalski"],
+    ["springs.html", "Spring playground", "Drag, boop and chase things with real spring physics.", "after Josh Comeau"],
+    ["resize.html", "Resize me", "One page, four completely different layouts depending on width.", "after Lynn Fisher"],
+  ]],
+  ["Cartography & lines", [
+    ["roads.html", "City roads", "Every road as line art. Grow a fake city or fetch a real one.", "after Andrei Kashcha"],
+    ["poster.html", "Digit poster", "A precise chord poster of π, e or √2, one line per digit.", "after Nicholas Rougeux"],
+    ["terrain.html", "Terrain", "Generative landscape as contour map or ridgelines.", "after Robert Hodgin"],
+    ["flowfield.html", "Flow field", "Lines that follow the wind and refuse to overlap.", "after Tyler Hobbs"],
+    ["plotter.html", "Plotter lines", "Minimal pen-plotter studies with SVG export.", "after Matt DesLauriers"],
+  ]],
+  ["Network / web of ideas", [
+    ["garden.html", "Digital garden", "Notes labelled seedling, budding and evergreen, with backlinks.", "after Maggie Appleton"],
+    ["stacked.html", "Stacked notes", "Links open beside the current note instead of replacing it.", "after Andy Matuschak"],
+    ["popups.html", "Nested previews", "Hover a link, then hover a link inside the preview.", "after Gwern Branwen"],
+    ["web.html", "Glowing web", "The same notes as a living web of glowing nodes.", "after Nadieh Bremer & Shirley Wu"],
+  ]],
+  ["Shadows in the city", [
+    ["shadows.html", "City shadows", "Drag the sun across a day and watch towers cast shade.", "after Shadowmap & the NYT"],
+    ["light.html", "Coloured light", "Three coloured lights and drifting shapes. Shadows turn colour.", "after Zach Lieberman"],
+  ]],
+  ["Just fun", [
+    ["circle.html", "Draw a perfect circle", "How round can you draw? Scored live.", "after Neal Agarwal"],
+    ["waves.html", "How waves add up", "A small explainer with figures you can play with.", "after Bartosz Ciechanowski"],
+    ["toys.html", "Googly eyes", "They watch you. Click to add more.", "after Tim Holman"],
+  ]],
+];
+
+const root = document.getElementById("groups");
+for (const [name, items] of GROUPS) {
+  const s = document.createElement("section");
+  s.innerHTML = `<h2>${name}</h2><ul>${items.map(([href, t, d, by]) =>
+    `<li><a href="pages/${href}"><div class="t">${t}</div><div class="d">${d}</div><div class="by">${by}</div></a></li>`
+  ).join("")}</ul>`;
+  root.appendChild(s);
+}
+
+// Drifting contour background.
+const canvas = document.getElementById("bg");
+const ctx = canvas.getContext("2d");
+const CELL = 14;
+let cols, rows, field, dpr;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  cols = Math.ceil(innerWidth / CELL) + 1;
+  rows = Math.ceil(innerHeight / CELL) + 1;
+  field = new Float32Array((cols + 1) * (rows + 1));
+}
+addEventListener("resize", resize);
+resize();
+Noise.seed(7);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let frame = 0;
+function draw(t) {
+  frame++;
+  if (frame % 2 === 0 || frame < 3) {
+    const z = reduce ? 0 : t * 0.00003;
+    for (let j = 0; j <= rows; j++)
+      for (let i = 0; i <= cols; i++)
+        field[j * (cols + 1) + i] = Noise.fbm(i * 0.018, j * 0.018, z, 3);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    const line = getComputedStyle(document.documentElement).getPropertyValue("--line");
+    ctx.strokeStyle = line;
+    for (let k = -8; k <= 8; k++) {
+      ctx.beginPath();
+      ctx.lineWidth = k % 4 === 0 ? 1.3 : 0.7;
+      Contour.isoline(ctx, field, cols, rows, CELL, k * 0.06);
+      ctx.stroke();
+    }
+  }
+  if (!reduce) requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

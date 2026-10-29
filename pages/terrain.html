@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { background: #0e1116; color: #d8e1e8; overflow: hidden; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Robert Hodgin</span></nav>
+<canvas id="c"></canvas>
+<div class="panel">
+  <div class="row"><button data-m="contour" class="on">Contours</button><button data-m="ridge">Ridgelines</button></div>
+  <label>levels <input id="levels" type="range" min="6" max="40" value="22"></label>
+  <label>drift <input id="drift" type="range" min="0" max="10" value="3"></label>
+  <div class="row"><button id="reseed">New land</button></div>
+</div>
+<div class="hint">move the pointer to shift the light</div>
+<script src="../js/noise.js"></script>
+<script src="../js/contour.js"></script>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr, mode = "contour", seed = 3, mx = 0.5, my = 0.5;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+addEventListener("resize", size); size();
+addEventListener("pointermove", (e) => { mx = e.clientX / W; my = e.clientY / H; });
+Noise.seed(seed);
+
+// Island-ish height: fbm with ridges, pulled down at the edges.
+function height(x, y, z) {
+  const n = Noise.fbm(x, y, z, 5);
+  const ridge = 1 - Math.abs(Noise.noise3(x * 0.7 + 10, y * 0.7, z));
+  return n * 0.7 + ridge * ridge * 0.45 - 0.2;
+}
+
+for (const b of document.querySelectorAll("[data-m]")) b.addEventListener("click", () => {
+  mode = b.dataset.m; document.querySelectorAll("[data-m]").forEach((x) => x.classList.toggle("on", x === b));
+});
+document.getElementById("reseed").addEventListener("click", () => Noise.seed(++seed));
+const levelsEl = document.getElementById("levels"), driftEl = document.getElementById("drift");
+
+let t = 0, last = performance.now();
+function frame(now) {
+  t += ((now - last) / 1000) * +driftEl.value * 0.01; last = now;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#0e1116"; g.fillRect(0, 0, W, H);
+  mode === "contour" ? contours() : ridges();
+  requestAnimationFrame(frame);
+}
+
+function contours() {
+  const CELL = 10, cols = Math.ceil(W / CELL), rows = Math.ceil(H / CELL);
+  const f = new Float32Array((cols + 1) * (rows + 1));
+  const s = 3 / Math.max(W, H);
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) f[j * (cols + 1) + i] = height(i * CELL * s, j * CELL * s, t);
+  const L = +levelsEl.value;
+  // Soft hillshade: compare neighbours against the light direction.
+  const lx = mx - 0.5, ly = my - 0.5;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const h = f[j * (cols + 1) + i];
+    const dx = f[j * (cols + 1) + i + 1] - h, dy = f[(j + 1) * (cols + 1) + i] - h;
+    const shade = Math.max(0, Math.min(1, 0.5 - (dx * lx + dy * ly) * 40));
+    g.fillStyle = `rgba(120,150,175,${shade * 0.12})`;
+    g.fillRect(i * CELL, j * CELL, CELL, CELL);
+  }
+  for (let k = 0; k < L; k++) {
+    const lev = -0.4 + (k / L) * 1.2;
+    const index = k % 5 === 0;
+    g.strokeStyle = index ? "rgba(230,200,140,0.9)" : `rgba(190,215,230,${0.25 + (k / L) * 0.45})`;
+    g.lineWidth = index ? 1.4 : 0.8;
+    g.beginPath(); Contour.isoline(g, f, cols, rows, CELL, lev); g.stroke();
+  }
+}
+
+function ridges() {
+  const L = +levelsEl.value * 2, step = 6;
+  const horizon = H * 0.2;
+  for (let r = 0; r < L; r++) {
+    const depth = r / (L - 1); // 0 far, 1 near
+    const y0 = horizon + depth * depth * (H * 0.75);
+    const amp = 40 + depth * 220;
+    const persp = 0.4 + depth * 0.9;
+    g.beginPath();
+    for (let x = -step; x <= W + step; x += step) {
+      const wx = ((x - W / 2) / W) * 3 / persp + mx * 0.6;
+      const h = height(wx, r * 0.06 + my * 0.4, t);
+      const y = y0 - Math.max(0, h + 0.25) * amp;
+      x === -step ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.lineTo(W + step, H); g.lineTo(-step, H); g.closePath();
+    g.fillStyle = "#0e1116"; g.fill();
+    g.strokeStyle = `rgba(200,220,235,${0.25 + depth * 0.7})`; g.lineWidth = 0.6 + depth * 1.1;
+    g.stroke();
+  }
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
