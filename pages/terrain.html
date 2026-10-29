@@ -6,96 +6,202 @@
 <title>Terrain</title>
 <link rel="stylesheet" href="../css/base.css">
 <style>
-  body { background: #0e1116; color: #d8e1e8; overflow: hidden; height: 100vh; }
+  body { overflow: hidden; height: 100vh; transition: background 300ms; }
   canvas { display: block; width: 100vw; height: 100vh; }
+  .panel { width: 300px; }
+  @media (max-width: 600px) { .panel { left: 16px; right: 16px; width: auto; } }
 </style>
 </head>
 <body>
-<nav class="sketch-nav"><a href="../index.html">← all sketches</a><span>after Robert Hodgin</span></nav>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><a href="roads-lab.html">City lab →</a><span>after Robert Hodgin · seven looks</span></nav>
 <canvas id="c"></canvas>
 <div class="panel">
-  <div class="row"><button data-m="contour" class="on">Contours</button><button data-m="ridge">Ridgelines</button></div>
-  <label>levels <input id="levels" type="range" min="6" max="40" value="22"></label>
+  <div class="row" id="modes"></div>
+  <label>levels <input id="levels" type="range" min="6" max="48" value="24"></label>
+  <label>zoom <input id="zoom" type="range" min="40" max="300" value="100"></label>
+  <label>sea level <input id="sea" type="range" min="-30" max="30" value="0"></label>
   <label>drift <input id="drift" type="range" min="0" max="10" value="3"></label>
-  <div class="row"><button id="reseed">New land</button></div>
+  <div class="row"><button id="reseed">New land</button><button id="png">Save PNG</button></div>
 </div>
 <div class="hint">move the pointer to shift the light</div>
 <script src="../js/noise.js"></script>
 <script src="../js/contour.js"></script>
 <script>
 const cv = document.getElementById("c"), g = cv.getContext("2d");
-let W, H, dpr, mode = "contour", seed = 3, mx = 0.5, my = 0.5;
-function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+const off = document.createElement("canvas"), offg = off.getContext("2d");
+const CELL = 9;
+let W, H, dpr, cols, rows, F, F2, img, mode = "topo", seed = 5, mx = 0.3, my = 0.25;
+
+function size() {
+  dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cols = Math.ceil(W / CELL) + 1; rows = Math.ceil(H / CELL) + 1;
+  F = new Float32Array((cols + 1) * (rows + 1)); F2 = new Float32Array(F.length);
+  off.width = cols + 1; off.height = rows + 1; img = offg.createImageData(cols + 1, rows + 1);
+}
 addEventListener("resize", size); size();
 addEventListener("pointermove", (e) => { mx = e.clientX / W; my = e.clientY / H; });
 Noise.seed(seed);
 
-// Island-ish height: fbm with ridges, pulled down at the edges.
-function height(x, y, z) {
-  const n = Noise.fbm(x, y, z, 5);
-  const ridge = 1 - Math.abs(Noise.noise3(x * 0.7 + 10, y * 0.7, z));
-  return n * 0.7 + ridge * ridge * 0.45 - 0.2;
+// ---- Height functions: (x, y, t) in noise space, (px, py) in screen pixels ----
+const islandish = (x, y, t) => {
+  const ridge = 1 - Math.abs(Noise.noise3(x * 0.7 + 10, y * 0.7, t));
+  return Noise.fbm(x, y, t, 5) * 0.7 + ridge * ridge * 0.45 - 0.2;
+};
+const warped = (x, y, t) => {
+  const q = Noise.fbm(x, y, t, 3), r = Noise.fbm(x + 5.2, y + 1.3, t, 3);
+  return Noise.fbm(x + 2.5 * q, y + 2.5 * r, t + 7, 4) * 1.3;
+};
+const atoll = (x, y, t, px, py) => {
+  const r = Math.hypot(px / W - 0.5, (py - H / 2) / W) * 2;
+  return 0.6 - r * 0.8 + Noise.fbm(x, y, t, 5) * 0.6;
+};
+const second = (x, y, t) => Noise.fbm(x * 1.15 + 31, y * 1.15 + 17, t + 9, 4);
+
+function sample(out, fn, t, scale) {
+  const w = cols + 1;
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++)
+    out[j * w + i] = fn(i * CELL * scale, j * CELL * scale, t, i * CELL, j * CELL);
 }
 
-for (const b of document.querySelectorAll("[data-m]")) b.addEventListener("click", () => {
-  mode = b.dataset.m; document.querySelectorAll("[data-m]").forEach((x) => x.classList.toggle("on", x === b));
+// ---- Colour helpers ----
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+function ramp(stops, t) {
+  t = clamp(t) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(t)), f = t - i, a = stops[i], b = stops[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+const HYPSO = [[47,107,79],[127,166,91],[216,207,122],[199,154,91],[138,106,74],[242,239,233]];
+const SHALLOW = [[127,209,214],[40,130,170],[11,58,99]];
+const LAND = [[239,227,176],[130,176,100],[80,130,70],[141,138,131],[245,245,245]];
+
+// Paint a smooth colour layer under the lines. color(h, shade) -> [r,g,b].
+function paint(color) {
+  const w = cols + 1, d = img.data, lx = mx - 0.5, ly = my - 0.5;
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+    const k = j * w + i, h = F[k];
+    const dx = F[j * w + Math.min(i + 1, cols)] - h, dy = F[Math.min(j + 1, rows) * w + i] - h;
+    const shade = clamp(0.5 - (dx * lx + dy * ly) * 40);
+    const c = color(h, shade);
+    d[k * 4] = c[0]; d[k * 4 + 1] = c[1]; d[k * 4 + 2] = c[2]; d[k * 4 + 3] = 255;
+  }
+  offg.putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(off, -CELL / 2, -CELL / 2, (cols + 1) * CELL, (rows + 1) * CELL);
+}
+function lines(field, levels, style, width) {
+  g.strokeStyle = style; g.lineWidth = width; g.beginPath();
+  for (const l of levels) Contour.isoline(g, field, cols, rows, CELL, l);
+  g.stroke();
+}
+const levelsFor = (L, lo, hi, sea) => Array.from({ length: L }, (_, k) => lo + ((k + 0.5) / L) * (hi - lo) + sea);
+const every = (arr, n, keep) => arr.filter((_, k) => (k % n === 0) === keep);
+
+// ---- The six looks ----
+const MODES = {
+  topo: { label: "Paper topo", fg: "#3a2e1e", bg: "#efe9d8", field: islandish, lo: -0.55, hi: 0.7,
+    draw(L, sea) {
+      paint((h, s) => { const k = 0.8 + s * 0.35; return [239 * k, 233 * k, 216 * k]; });
+      const lv = levelsFor(L, this.lo, this.hi, sea);
+      lines(F, every(lv, 5, false), "rgba(130,85,45,0.55)", 0.8);
+      lines(F, every(lv, 5, true), "rgba(138,75,31,0.95)", 1.5);
+    } },
+  hypso: { label: "Colour bands", fg: "#fff", bg: "#222", field: islandish, lo: -0.55, hi: 0.7,
+    draw(L, sea) {
+      paint((h, s) => {
+        const band = Math.floor(clamp((h - sea - this.lo) / (this.hi - this.lo)) * L) / L;
+        const c = ramp(HYPSO, band), k = 0.7 + s * 0.6;
+        return [c[0] * k, c[1] * k, c[2] * k];
+      });
+      const lv = levelsFor(L, this.lo, this.hi, sea);
+      lines(F, lv, "rgba(0,0,0,0.22)", 0.7);
+    } },
+  atoll: { label: "Atoll", fg: "#fff", bg: "#0b3a63", field: atoll, lo: -0.7, hi: 0.9,
+    draw(L, sea) {
+      paint((h, s) => {
+        const c = h < sea ? ramp(SHALLOW, (sea - h) / 0.9) : ramp(LAND, (h - sea) / 0.8);
+        const k = h < sea ? 1 : 0.75 + s * 0.5;
+        return [c[0] * k, c[1] * k, c[2] * k];
+      });
+      const lv = levelsFor(L, this.lo, this.hi, 0);
+      lines(F, lv.filter((l) => l + 0 < sea - 0.02), "rgba(255,255,255,0.28)", 0.7);
+      lines(F, lv.filter((l) => l > sea + 0.02), "rgba(30,50,30,0.3)", 0.7);
+      lines(F, [sea], "#fff", 2.2);
+    } },
+  ridge: { label: "Ridgelines", fg: "#d8e1e8", bg: "#0e1116", field: islandish, lo: -0.5, hi: 0.7,
+    draw(L, sea, t) {
+      g.fillStyle = "#0e1116"; g.fillRect(0, 0, W, H);
+      const n = L * 2, step = 6, horizon = H * 0.2;
+      for (let r = 0; r < n; r++) {
+        const depth = r / (n - 1), y0 = horizon + depth * depth * (H * 0.75);
+        const amp = 40 + depth * 220, persp = 0.4 + depth * 0.9;
+        g.beginPath();
+        for (let x = -step; x <= W + step; x += step) {
+          const h = islandish(((x - W / 2) / W) * 3 / persp + mx * 0.6, r * 0.06 + my * 0.4, t);
+          const y = y0 - Math.max(0, h + 0.25 - sea) * amp;
+          x === -step ? g.moveTo(x, y) : g.lineTo(x, y);
+        }
+        g.lineTo(W + step, H); g.lineTo(-step, H); g.closePath();
+        g.fillStyle = "#0e1116"; g.fill();
+        g.strokeStyle = `rgba(200,220,235,${0.25 + depth * 0.7})`; g.lineWidth = 0.6 + depth * 1.1; g.stroke();
+      }
+    } },
+  neon: { label: "Neon slices", fg: "#cfe", bg: "#07070d", field: islandish, lo: -0.5, hi: 0.7,
+    draw(L, sea) {
+      g.fillStyle = "#07070d"; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = "lighter";
+      levelsFor(L, this.lo, this.hi, sea).forEach((l, k) => {
+        const hue = 190 + (k / L) * 170;
+        lines(F, [l], `hsla(${hue},95%,60%,0.07)`, 5);
+        lines(F, [l], `hsla(${hue},95%,65%,0.75)`, 0.9);
+      });
+      g.globalCompositeOperation = "source-over";
+    } },
+  warp: { label: "Marbled", fg: "#1c1b19", bg: "#f5f2ea", field: warped, lo: -0.8, hi: 0.8,
+    draw(L, sea) {
+      g.fillStyle = "#f5f2ea"; g.fillRect(0, 0, W, H);
+      const lv = levelsFor(L * 2, this.lo, this.hi, sea);
+      lines(F, every(lv, 4, false), "rgba(28,27,25,0.7)", 0.6);
+      lines(F, every(lv, 4, true), "rgba(28,27,25,0.95)", 1.4);
+    } },
+  moire: { label: "Interference", fg: "#fda", bg: "#0b0c10", field: islandish, lo: -0.5, hi: 0.55,
+    draw(L, sea, t, scale) {
+      sample(F2, second, t, scale);
+      g.fillStyle = "#0b0c10"; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = "lighter";
+      const lv = levelsFor(L, this.lo, this.hi, sea);
+      lines(F, lv, "rgba(255,140,60,0.65)", 0.9);
+      lines(F2, lv, "rgba(70,200,255,0.65)", 0.9);
+      g.globalCompositeOperation = "source-over";
+    } },
+};
+
+const modesEl = document.getElementById("modes");
+for (const [key, m] of Object.entries(MODES)) {
+  const b = document.createElement("button"); b.textContent = m.label; b.dataset.m = key;
+  b.addEventListener("click", () => setMode(key)); modesEl.appendChild(b);
+}
+function setMode(key) {
+  mode = key; const m = MODES[key];
+  document.body.style.background = m.bg; document.body.style.color = m.fg;
+  modesEl.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === key));
+}
+setMode(mode);
+
+const $ = (id) => document.getElementById(id);
+$("reseed").addEventListener("click", () => Noise.seed(++seed));
+$("png").addEventListener("click", () => {
+  const a = document.createElement("a"); a.download = `terrain-${mode}.png`; a.href = cv.toDataURL("image/png"); a.click();
 });
-document.getElementById("reseed").addEventListener("click", () => Noise.seed(++seed));
-const levelsEl = document.getElementById("levels"), driftEl = document.getElementById("drift");
 
 let t = 0, last = performance.now();
 function frame(now) {
-  t += ((now - last) / 1000) * +driftEl.value * 0.01; last = now;
+  t += ((now - last) / 1000) * +$("drift").value * 0.01; last = now;
+  const m = MODES[mode], scale = 3 / Math.max(W, H) / (+$("zoom").value / 100);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = "#0e1116"; g.fillRect(0, 0, W, H);
-  mode === "contour" ? contours() : ridges();
+  sample(F, m.field, t, scale);
+  m.draw(+$("levels").value, +$("sea").value * 0.01, t, scale);
   requestAnimationFrame(frame);
-}
-
-function contours() {
-  const CELL = 10, cols = Math.ceil(W / CELL), rows = Math.ceil(H / CELL);
-  const f = new Float32Array((cols + 1) * (rows + 1));
-  const s = 3 / Math.max(W, H);
-  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) f[j * (cols + 1) + i] = height(i * CELL * s, j * CELL * s, t);
-  const L = +levelsEl.value;
-  // Soft hillshade: compare neighbours against the light direction.
-  const lx = mx - 0.5, ly = my - 0.5;
-  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-    const h = f[j * (cols + 1) + i];
-    const dx = f[j * (cols + 1) + i + 1] - h, dy = f[(j + 1) * (cols + 1) + i] - h;
-    const shade = Math.max(0, Math.min(1, 0.5 - (dx * lx + dy * ly) * 40));
-    g.fillStyle = `rgba(120,150,175,${shade * 0.12})`;
-    g.fillRect(i * CELL, j * CELL, CELL, CELL);
-  }
-  for (let k = 0; k < L; k++) {
-    const lev = -0.4 + (k / L) * 1.2;
-    const index = k % 5 === 0;
-    g.strokeStyle = index ? "rgba(230,200,140,0.9)" : `rgba(190,215,230,${0.25 + (k / L) * 0.45})`;
-    g.lineWidth = index ? 1.4 : 0.8;
-    g.beginPath(); Contour.isoline(g, f, cols, rows, CELL, lev); g.stroke();
-  }
-}
-
-function ridges() {
-  const L = +levelsEl.value * 2, step = 6;
-  const horizon = H * 0.2;
-  for (let r = 0; r < L; r++) {
-    const depth = r / (L - 1); // 0 far, 1 near
-    const y0 = horizon + depth * depth * (H * 0.75);
-    const amp = 40 + depth * 220;
-    const persp = 0.4 + depth * 0.9;
-    g.beginPath();
-    for (let x = -step; x <= W + step; x += step) {
-      const wx = ((x - W / 2) / W) * 3 / persp + mx * 0.6;
-      const h = height(wx, r * 0.06 + my * 0.4, t);
-      const y = y0 - Math.max(0, h + 0.25) * amp;
-      x === -step ? g.moveTo(x, y) : g.lineTo(x, y);
-    }
-    g.lineTo(W + step, H); g.lineTo(-step, H); g.closePath();
-    g.fillStyle = "#0e1116"; g.fill();
-    g.strokeStyle = `rgba(200,220,235,${0.25 + depth * 0.7})`; g.lineWidth = 0.6 + depth * 1.1;
-    g.stroke();
-  }
 }
 requestAnimationFrame(frame);
 </script>

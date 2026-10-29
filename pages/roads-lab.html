@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Lab</title>
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  body { overflow: hidden; height: 100vh; transition: background 300ms, color 300ms; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  .panel { width: 300px; }
+  .panel h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.6; }
+  .title {
+    position: fixed; left: 0; right: 0; bottom: 28px; text-align: center; pointer-events: none;
+    font-family: Georgia, serif; letter-spacing: 0.3em; text-transform: uppercase; font-size: 22px;
+  }
+  .title small { display: block; font-family: ui-monospace, monospace; letter-spacing: 0.1em; font-size: 11px; opacity: 0.6; margin-top: 6px; }
+  @media (max-width: 600px) { .panel { left: 16px; right: 16px; width: auto; } .title { bottom: auto; top: 56px; font-size: 16px; } }
+</style>
+</head>
+<body>
+<nav class="sketch-nav"><a href="../index.html">← all sketches</a><a href="terrain.html">Terrain →</a><span>after Andrei Kashcha · six street plans</span></nav>
+<canvas id="c"></canvas>
+<div class="title"><span id="name"></span><small id="sub"></small></div>
+<div class="panel">
+  <h3>Street plan</h3>
+  <div class="row" id="modes"></div>
+  <h3>Ink</h3>
+  <div class="row" id="pals"></div>
+  <label>growth speed <input id="speed" type="range" min="1" max="10" value="3"></label>
+  <label>density <input id="density" type="range" min="40" max="200" value="100"></label>
+  <div class="row"><button id="grow">Grow new city</button><button id="png">Save PNG</button></div>
+</div>
+<script src="../js/noise.js"></script>
+<script>
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+let W, H, dpr;
+function size() { dpr = Math.min(devicePixelRatio, 2); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; }
+size();
+
+const PAL = {
+  ink:   { label: "Paper", bg: "#fbfaf7", line: "#151515", water: "#d3e4ee", add: false },
+  blue:  { label: "Blueprint", bg: "#0d2b4e", line: "#d4e8ff", water: "#091d38", add: false },
+  night: { label: "Night", bg: "#0b0b0f", line: "#ffc861", water: "#15151f", add: true },
+};
+const Q = Math.PI / 2;
+
+// Each plan says which directions streets prefer (field), how many (branch angle),
+// how strongly agents snap to them (rate) and how much they wander (wobble).
+// Index 0 = avenues, 1 = streets, 2 = lanes.
+const MODES = {
+  organic: { label: "Medieval", branch: 0, field: () => 0, rate: [0, 0, 0], wobble: [0.12, 0.16, 0.2], chance: [0.1, 0.2, 0.12], arms: 4,
+    sub: "streets that follow the cows" },
+  grid: { label: "Manhattan", branch: Q, field: () => 0.5, rate: [0.3, 0.3, 0.3], wobble: [0.02, 0.02, 0.02], chance: [0.2, 0.28, 0.12], arms: 4,
+    broadway: true, sub: "one diagonal broke the rules" },
+  radial: { label: "Paris", branch: Q, field: (x, y) => Math.atan2(y - H / 2, x - W / 2), rate: [0.2, 0.2, 0.25], wobble: [0.02, 0.03, 0.03], chance: [0.12, 0.2, 0.1], arms: 8,
+    sub: "everything leads to the middle" },
+  patches: { label: "Districts", branch: Q, field: (x, y) => Math.floor((Noise.noise3(x * 0.0025, y * 0.0025, 9) + 1) * 2.5) * 0.4, rate: [0.1, 0.15, 0.2], wobble: [0.03, 0.04, 0.05], chance: [0.14, 0.24, 0.1], arms: 4,
+    sub: "each neighbourhood faces its own way" },
+  hex: { label: "Triangles", branch: Math.PI / 3, field: (x, y) => 0.2 + Noise.noise3(x * 0.002, y * 0.002, 4) * 0.3, rate: [0.2, 0.2, 0.25], wobble: [0.03, 0.04, 0.04], chance: [0.16, 0.24, 0.12], arms: 6,
+    sub: "sixty degrees of separation" },
+  harbor: { label: "Harbour", branch: Q, field: (x, y) => Noise.noise3(x * 0.0015, y * 0.0015, 6) * 0.6, rate: [0.12, 0.2, 0.25], wobble: [0.03, 0.04, 0.05], chance: [0.14, 0.24, 0.1], arms: 4,
+    water: (x, y) => Noise.fbm(x * 0.002, y * 0.002, 0, 4) * 0.5 + (y / H - 0.72) * 1.1 > 0 || Math.abs(Noise.fbm(x * 0.0015 + 9, y * 0.0015, 0, 3)) < 0.025,
+    sub: "roads, until the water" },
+};
+const NAMES = ["Nowhere", "Elsewhere", "Somewhen", "Lineham", "Graphton", "Plotsburg", "Veinport", "Ashgrid"];
+
+let mode = "grid", pal = "ink", seed = 1, run = 0;
+const $ = (id) => document.getElementById(id);
+
+function grow() {
+  const myRun = ++run, M = MODES[mode], P = PAL[pal];
+  Noise.seed(seed);
+  const R = Noise.random;
+  document.body.style.background = P.bg; document.body.style.color = P.line;
+  $("name").textContent = NAMES[(seed + Object.keys(MODES).indexOf(mode)) % NAMES.length];
+  $("sub").textContent = `${M.sub} · seed ${seed}`;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
+  const water = M.water || (() => false);
+  if (M.water) {
+    g.fillStyle = P.water;
+    for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) if (water(x, y)) g.fillRect(x, y, 4, 4);
+  }
+  g.strokeStyle = P.line; g.lineCap = "round";
+  if (P.add) g.globalCompositeOperation = "lighter";
+  g.globalAlpha = P.add ? 0.85 : 1;
+
+  const WIDTH = P.add ? [2.2, 1.2, 0.7] : [2, 1, 0.6], STEP = [6, 5, 4], LIFE = [500, 180, 60];
+  const dens = +$("density").value / 100;
+  const CELL = 12, grid = new Map();
+  const key = (x, y) => ((x / CELL) | 0) + "," + ((y / CELL) | 0);
+  function addPoint(p) { const k = key(p.x, p.y); (grid.get(k) || grid.set(k, []).get(k)).push(p); }
+  function nearest(x, y, r, self) {
+    let best = null, bd = r * r;
+    const cx = (x / CELL) | 0, cy = (y / CELL) | 0;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const p of grid.get(cx + i + "," + (cy + j)) || []) {
+      if (p.id === self.id && p.idx > self.idx - 6) continue;
+      if (p.id === self.parent && self.idx < 3) continue;
+      if (self.level === 0 && p.level !== 0) continue;
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  let nextId = 0;
+  const agents = [];
+  const spawn = (x, y, a, level, parent = -1, free = false) => {
+    if (water(x, y)) return;
+    agents.push({ x, y, a, level, parent, free, id: nextId++, idx: 0, life: LIFE[level], bridge: 0, used: false });
+  };
+  const cx = W / 2, cy = H / 2, f0 = M.branch ? M.field(cx, cy) : R() * 6;
+  for (let i = 0; i < M.arms; i++) spawn(cx, cy, f0 + (i / M.arms) * Math.PI * 2, 0);
+  if (M.broadway) spawn(cx, cy, f0 + Math.PI / 4, 0, -1, true), spawn(cx, cy, f0 + Math.PI / 4 + Math.PI, 0, -1, true);
+  for (let i = 0; i < 6; i++) spawn(R() * W, R() * H, R() * 7, 0);
+  for (let i = 0; i < 40 * dens; i++) spawn(cx + (R() - 0.5) * W * 0.6, cy + (R() - 0.5) * H * 0.6, R() * 7, 1);
+
+  function stepAgent(ag) {
+    const lv = ag.level;
+    if (M.branch && !ag.free) {
+      const f = M.field(ag.x, ag.y);
+      let d = (ag.a - f) % M.branch; if (d < 0) d += M.branch; if (d > M.branch / 2) d -= M.branch;
+      ag.a -= d * M.rate[lv];
+      ag.a += (R() - 0.5) * M.wobble[lv];
+    } else {
+      ag.a += Noise.noise3(ag.x * 0.004, ag.y * 0.004, ag.id) * M.wobble[lv] + (R() - 0.5) * 0.04;
+    }
+    const nx = ag.x + Math.cos(ag.a) * STEP[lv], ny = ag.y + Math.sin(ag.a) * STEP[lv];
+    let done = false, blocked = false, ex = nx, ey = ny;
+    if (ag.bridge > 0) ag.bridge--;
+    else if (water(nx, ny)) {
+      if (lv === 0 && !ag.used && R() < 0.6) { ag.bridge = 24; ag.used = true; } else done = blocked = true;
+    }
+    const hit = done ? null : nearest(nx, ny, lv === 0 ? 5 : 9, ag);
+    if (hit) { ex = hit.x; ey = hit.y; done = true; }
+    if (nx < -20 || ny < -20 || nx > W + 20 || ny > H + 20) done = true;
+    if (!blocked) {
+      g.lineWidth = WIDTH[lv] * (ag.bridge > 0 ? 1.8 : 1);
+      g.beginPath(); g.moveTo(ag.x, ag.y); g.lineTo(ex, ey); g.stroke();
+      ag.x = ex; ag.y = ey;
+    }
+    ag.idx++;
+    addPoint({ x: ag.x, y: ag.y, id: ag.id, idx: ag.idx, level: lv });
+    if (--ag.life <= 0) done = true;
+    if (!done && R() < M.chance[lv] * dens) {
+      const side = R() < 0.5 ? 1 : -1;
+      const turn = M.branch ? M.branch : Q + (R() - 0.5) * 0.9;
+      spawn(ag.x, ag.y, ag.a + side * turn + (R() - 0.5) * 0.1, Math.min(2, lv + 1), ag.id);
+    }
+    if (!done && lv === 1 && R() < 0.05 * dens) spawn(ag.x, ag.y, ag.a - (M.branch || Q), 1, ag.id);
+    return done;
+  }
+
+  function frame() {
+    if (myRun !== run) return;
+    for (let k = 0, n = +$("speed").value; k < n; k++)
+      for (let i = agents.length - 1; i >= 0; i--) if (stepAgent(agents[i])) agents.splice(i, 1);
+    if (agents.length) requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+function buttons(host, obj, get, set) {
+  for (const [k, v] of Object.entries(obj)) {
+    const b = document.createElement("button"); b.textContent = v.label; b.dataset.k = k;
+    b.addEventListener("click", () => { set(k); sync(); grow(); });
+    $(host).appendChild(b);
+  }
+}
+function sync() {
+  document.querySelectorAll("#modes button").forEach((b) => b.classList.toggle("on", b.dataset.k === mode));
+  document.querySelectorAll("#pals button").forEach((b) => b.classList.toggle("on", b.dataset.k === pal));
+}
+buttons("modes", MODES, () => mode, (k) => (mode = k));
+buttons("pals", PAL, () => pal, (k) => (pal = k));
+$("grow").addEventListener("click", () => { seed++; grow(); });
+$("density").addEventListener("change", grow);
+$("png").addEventListener("click", () => {
+  const a = document.createElement("a"); a.download = `city-${mode}-${seed}.png`; a.href = cv.toDataURL("image/png"); a.click();
+});
+addEventListener("resize", () => { size(); grow(); });
+sync(); grow();
+</script>
+</body>
+</html>
